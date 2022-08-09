@@ -24,7 +24,7 @@
 #include <parlay/primitives.h>
 #include <parlay/delayed_sequence.h>
 #include <parlay/random.h>
-#define DEBUG_OUTPUT 1
+#define DEBUG_OUTPUT 0
 #if DEBUG_OUTPUT
 #define debug_output(...) fprintf(stderr, __VA_ARGS__)
 #else
@@ -119,7 +119,7 @@ public:
 	uint32_t n;
 	Allocator<node> allocator;
 	std::vector<node*> node_pool;
-	std::atomic<size_t> total_visited;
+	mutable std::atomic<size_t> total_visited = 0;
 
 	static auto neighbourhood(const node &u, uint32_t level)
 		-> std::vector<node*>&
@@ -241,7 +241,7 @@ public:
 			{
 				const auto d_r = U::distance(e.u->data, r->data, dim);
 				//if(d_r*(level+1)>d_q*alpha*(entrance->level+1))
-				if(d_r>d_q*alpha)
+				if(d_r<d_q)
 				{
 					is_good = false;
 					break;
@@ -278,7 +278,7 @@ public:
 	auto select_neighbors(const T &u, 
 		/*const std::priority_queue<dist,std::vector<dist>,farthest> &C,*/
 		const parlay::sequence<dist> &C, uint32_t M,
-		uint32_t level, bool extendCandidate=false, bool keepPrunedConnections=true)
+		uint32_t level, bool extendCandidate=false, bool keepPrunedConnections=false)
 	{
 		/*
 		(void)level, (void)extendCandidate, (void)keepPrunedConnections;
@@ -502,7 +502,7 @@ HNSW<T,Allocator>::HNSW(Iter begin, Iter end, uint32_t dim_, float m_l_, uint32_
 		// batch_end = batch_begin+1;
 
 		insert(rand_seq.begin()+batch_begin, rand_seq.begin()+batch_end, true);
-		insert(rand_seq.begin()+batch_begin, rand_seq.begin()+batch_end, false);
+		// insert(rand_seq.begin()+batch_begin, rand_seq.begin()+batch_end, false);
 
 		if(batch_end>n*(progress+0.1))
 		{
@@ -760,7 +760,8 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> 
 			}
 		}
 	}
-	// const_cast<std::atomic<size_t>&>(total_visited) += visited.size();
+	if(l_c==0)
+		total_visited += visited.size();
 	return W;
 }
 
