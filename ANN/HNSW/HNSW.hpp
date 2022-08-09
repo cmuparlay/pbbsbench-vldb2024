@@ -301,6 +301,7 @@ public:
 
 	auto search_layer(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c) const; // To static
 	auto search_layer_ex(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c) const; // To static
+	auto beam_search_ex(const node &u, const std::vector<node*> &eps, uint32_t beamSize, uint32_t l_c) const;
 	auto get_threshold_m(uint32_t level){
 		return level==0? m*2: m;
 	}
@@ -701,9 +702,12 @@ void HNSW<U,Allocator>::insert(Iter begin, Iter end, bool from_blank)
 template<typename U, template<typename> class Allocator>
 auto HNSW<U,Allocator>::search_layer(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c) const
 {
+	debug_output("begin search layer\n");
 	auto W_ex = search_layer_ex(u, eps, ef, l_c);
+	// auto W_ex = beam_search_ex(u, eps, ef, l_c);
 	// std::priority_queue<dist,std::vector<dist>,farthest> W;
 	parlay::sequence<dist> W(W_ex.begin(), W_ex.end());
+	debug_output("end search layer\n");
 	return W;
 }
 
@@ -765,6 +769,133 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> 
 	return W;
 }
 
+template<typename U, template<typename> class Allocator>
+auto HNSW<U,Allocator>::beam_search_ex(const node &u, const std::vector<node*> &eps, uint32_t beamSize, uint32_t l_c) const
+// std::pair<parlay::sequence<dist_ex>, parlay::sequence<dist_ex>> beam_search(
+		// T* p_coords, int beamSize)
+{
+	beamSize *= 2;
+	// beamSize = 20000;
+	// initialize data structures
+	std::vector<dist_ex> visited;
+	parlay::sequence<dist_ex> frontier;
+	auto dist_less = [&](const dist_ex &a, const dist_ex &b) {
+		return a.d < b.d || (a.d == b.d && a.u < b.u);
+		// return a.u<b.u;
+	};
+	auto dist_eq = [&](const dist_ex &a, const dist_ex &b){
+		return a.u == b.u;
+	};
+
+	// int bits = std::ceil(std::log2(beamSize * beamSize));
+	// parlay::sequence<uint32_t> hash_table(1 << bits, std::numeric_limits<uint32_t>::max());
+	std::set<uint32_t> accessed;
+
+	auto make_pid = [&] (node *ep) {
+		const auto d = U::distance(u.data,ep->data,dim);
+		return dist_ex{d,ep,1};
+	};
+
+	// the frontier starts with the medoid
+	// frontier.push_back(make_pid(medoid->id));
+	
+	for(node *ep : eps)
+		frontier.push_back(make_pid(ep));
+	std::sort(frontier.begin(), frontier.end(), dist_less);
+	
+	// frontier.push_back(make_pid(eps[0]));
+
+	std::vector<dist_ex> unvisited_frontier;
+	// std::vector<dist_ex> unvisited_frontier(beamSize);
+	parlay::sequence<dist_ex> new_frontier;
+	// parlay::sequence<dist_ex> new_frontier(2 * beamSize);
+	bool not_done = true;
+
+
+	for(size_t i=0; i<frontier.size(); ++i)
+	{
+		unvisited_frontier.push_back(frontier[i]);
+		// unvisited_frontier[i] = frontier[i];
+		accessed.insert(U::get_id(frontier[i].u->data));
+	}
+
+	// terminate beam search when the entire frontier has been visited
+	while (not_done) {
+		// the next node to visit is the unvisited frontier node that is closest
+		// to p
+		dist_ex currentPid = unvisited_frontier[0];
+		auto *current_vtx = currentPid.u;
+		debug_output("current_vtx ID: %u\n", U::get_id(current_vtx->data));
+
+		auto g = [&](node *a) {
+			uint32_t id_a = U::get_id(a->data);
+			/*
+			uint32_t loc = parlay::hash64_2(id_a) & ((1 << bits) - 1);
+			if (hash_table[loc] == id_a) return false;
+			hash_table[loc] = id_a;
+			return true;
+			*/
+			return accessed.insert(id_a).second;
+		};
+
+		parlay::sequence<node*> candidates;
+		auto f = [&](node *pu, node *pv/*, empty_weight wgh*/) {
+			if (g(pv)) {
+				candidates.push_back(pv);
+			}
+			return true;
+		};
+		for(auto *pv : neighbourhood(*current_vtx,l_c))
+			// current_vtx.out_neighbors().foreach_cond(f);
+			f(current_vtx, pv);
+
+		debug_output("candidates:\n");
+		for(auto *p : candidates)
+			debug_output("%u ", U::get_id(p->data));
+		debug_output("\n");
+		auto pairCandidates =
+				parlay::map(candidates, make_pid);
+		auto sortedCandidates =
+				parlay::unique(parlay::sort(pairCandidates, dist_less), dist_eq);
+		debug_output("size of sortedCandidates: %lu\n", sortedCandidates.size());
+		/*
+		auto f_iter = std::set_union(
+				frontier.begin(), frontier.end(), sortedCandidates.begin(),
+				sortedCandidates.end(), new_frontier.begin(), dist_less);\
+		*/
+		sortedCandidates.insert(sortedCandidates.end(), frontier);
+		new_frontier = parlay::unique(parlay::sort(sortedCandidates,dist_less), dist_eq);
+
+		// size_t f_size = std::min<size_t>(beamSize, f_iter - new_frontier.begin());
+		size_t f_size = std::min<size_t>(beamSize, new_frontier.size());
+		debug_output("f_size: %lu\n", f_size);
+
+		debug_output("frontier (size: %lu)\n", frontier.size());
+		for(const auto &e : frontier)
+			debug_output("%u ", U::get_id(e.u->data));
+		debug_output("\n");
+		
+		frontier =
+				parlay::tabulate(f_size, [&](size_t i) { return new_frontier[i]; });
+		debug_output("size of frontier: %lu\n", frontier.size());
+		visited.insert(
+				std::upper_bound(visited.begin(), visited.end(), currentPid, dist_less),
+				currentPid);
+		debug_output("size of visited: %lu\n", visited.size());
+		unvisited_frontier.reserve(frontier.size());
+		auto uf_iter =
+				std::set_difference(frontier.begin(), frontier.end(), visited.begin(),
+														visited.end(), unvisited_frontier.begin(), dist_less);
+		debug_output("uf_iter - unvisited_frontier.begin(): %lu\n", uf_iter - unvisited_frontier.begin());
+		not_done = uf_iter > unvisited_frontier.begin();
+
+		if(l_c==0)
+			total_visited += candidates.size();
+	}
+	parlay::sequence<dist_ex> W;
+	W.insert(W.end(), visited);
+	return W;
+}
 
 template<typename U, template<typename> class Allocator>
 std::vector<std::pair<uint32_t,float>> HNSW<U,Allocator>::search(const T &q, uint32_t k, uint32_t ef)
