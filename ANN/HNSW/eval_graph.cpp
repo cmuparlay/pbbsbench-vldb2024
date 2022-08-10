@@ -122,7 +122,7 @@ void output_recall(HNSW<descr_fvec> &g, commandLine param, parlay::internal::tim
 	const uint32_t ef = param.getOptionIntValue("-ef", cnt_rank_cmp*50);
 	const uint32_t cnt_pts_query = param.getOptionIntValue("-k", q.size());
 
-	std::vector<std::vector<std::pair<uint32_t,double>>> res(cnt_pts_query);
+	std::vector<std::vector<std::pair<uint32_t,float>>> res(cnt_pts_query);
 	parlay::parallel_for(0, cnt_pts_query, [&](size_t i){
 		res[i] = g.search(q[i], cnt_rank_cmp, ef);
 	});

@@ -120,6 +120,8 @@ public:
 	Allocator<node> allocator;
 	std::vector<node*> node_pool;
 	mutable std::atomic<size_t> total_visited = 0;
+	mutable std::atomic<size_t> total_eval = 0;
+	mutable std::atomic<size_t> total_size_C = 0;
 
 	static auto neighbourhood(const node &u, uint32_t level)
 		-> std::vector<node*>&
@@ -183,11 +185,24 @@ public:
 	}
 
 	template<typename Queue>
-	auto select_neighbors_simple(const T &u, Queue C, uint32_t M)
+	auto select_neighbors_simple(const T &u, const Queue &C, uint32_t M)
 	{
 		// The parameter C is intended to be copy constructed
+		/*
 		select_neighbors_simple_impl(u, C, M);
 		return C;
+		*/
+		auto R = parlay::sort(C, farthest());
+		if(R.size()>M) R.resize(M);
+		/*
+		uint32_t size_R = std::min(C.size(),M);
+		std::vector<node*> R;
+		R.reserve(size_R);
+		for(const auto &e : C)
+			R.push_back(e.u);
+		*/
+
+		return R;
 	}
 
 	// To optimize
@@ -510,10 +525,14 @@ HNSW<T,Allocator>::HNSW(Iter begin, Iter end, uint32_t dim_, float m_l_, uint32_
 			progress = float(batch_end)/n;
 			fprintf(stderr, "Done: %.2f\n", progress);
 			fprintf(stderr, "# visited: %lu\n", total_visited.load());
+			fprintf(stderr, "# eval: %lu\n", total_eval.load());
+			fprintf(stderr, "size of C: %lu\n", total_size_C.load());
 		}
 	}
 
 	fprintf(stderr, "# visited: %lu\n", total_visited.load());
+	fprintf(stderr, "# eval: %lu\n", total_eval.load());
+	fprintf(stderr, "size of C: %lu\n", total_size_C.load());
 	if(do_fixing) fix_edge();
 
 	#if 0
@@ -720,28 +739,43 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> 
 	std::set<uint32_t> visited;
 	// std::priority_queue<dist_ex,std::vector<dist_ex>,nearest> C;
 	// std::priority_queue<dist_ex,std::vector<dist_ex>,farthest> W;
-	parlay::sequence<dist_ex> C, W;
+	parlay::sequence<dist_ex> /*C, W, */W_;
+	std::set<dist_ex,farthest> C, C_acc;
+	uint32_t cnt_used = 0;
 
 	for(auto *ep : eps)
 	{
 		// visited[U::get_id(ep->data)] = true;
 		visited.insert(U::get_id(ep->data));
 		const auto d = U::distance(u.data,ep->data,dim);
-		C.push_back({d,ep,1});
-		W.push_back({d,ep,1});
+		C.insert({d,ep,1});
+		C_acc.insert({d,ep,1});
+		// C.push_back({d,ep,1});
+		// W.push_back({d,ep,1});
 	}
-	std::make_heap(C.begin(), C.end(), nearest());
-	std::make_heap(W.begin(), W.end(), farthest());
+	// std::make_heap(C.begin(), C.end(), nearest());
+	// std::make_heap(W.begin(), W.end(), farthest());
 
 	while(C.size()>0)
 	{
 		// const auto &f = *(W[0].u);
 		// if(U::distance(c.data,u.data,dim)>U::distance(f.data,u.data,dim))
-		if(C[0].d>W[0].d) break;
+		// if(C[0].d>W[0].d) break;
+		if(C_acc.size()==cnt_used) break;
+		if(l_c==0) total_eval++;
+		/*
 		const auto dc = C[0].depth;
 		const auto &c = *(C[0].u);
-		std::pop_heap(C.begin(), C.end(), nearest());
-		C.pop_back();
+		*/
+		auto it = C.begin();
+		const auto dc = it->depth;
+		const auto &c = *(it->u);
+		// W_.push_back(C[0]);
+		W_.push_back(*it);
+		// std::pop_heap(C.begin(), C.end(), nearest());
+		// C.pop_back();
+		C.erase(it);
+		cnt_used++;
 		for(auto *pv: neighbourhood(c, l_c))
 		{
 			// if(visited[U::get_id(pv->data)]) continue;
@@ -750,10 +784,14 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> 
 			// const auto &f = *(W[0].u);
 			// if(W.size()<ef||U::distance(pv->data,u.data,dim)<U::distance(f.data,u.data,dim))
 			const auto d = U::distance(u.data,pv->data,dim);
-			if(W.size()<ef||d<W[0].d)
+			// if(W.size()<ef||d<W[0].d)
+			// if(C.size()<ef||d<C.rend()->d)
 			{
-				C.push_back({d,pv,dc+1});
-				std::push_heap(C.begin(), C.end(), nearest());
+				// C.push_back({d,pv,dc+1});
+				// std::push_heap(C.begin(), C.end(), nearest());
+				C.insert({d,pv,dc+1});
+				C_acc.insert({d,pv,dc+1});
+				/*
 				W.push_back({d,pv,dc+1});
 				std::push_heap(W.begin(), W.end(), farthest());
 				if(W.size()>ef)
@@ -761,12 +799,36 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> 
 					std::pop_heap(W.begin(), W.end(), farthest());
 					W.pop_back();
 				}
+				*/
+				
+				if(C.size()>ef)
+				{
+					// std::pop_heap(C.begin(), C.end(), nearest());
+					// C.pop_back();
+					C.erase(std::prev(C.end()));
+				}
+				if(C_acc.size()>ef)
+				{
+					auto it = std::prev(C_acc.end());
+					if(std::find_if(W_.begin(), W_.end(), [&](const dist_ex &a){
+						return a.u==it->u;
+					})!=W_.end())
+						cnt_used--;
+					C_acc.erase(it);
+				}
 			}
 		}
 	}
 	if(l_c==0)
+	{
 		total_visited += visited.size();
-	return W;
+		total_size_C += C.size();
+	}
+	/*
+	std::sort(W.begin(), W.end(), farthest());
+	if(W.size()>ef) W.resize(ef);
+	*/
+	return W_;
 }
 
 template<typename U, template<typename> class Allocator>
@@ -928,14 +990,19 @@ std::vector<std::tuple<uint32_t,uint32_t,float>> HNSW<U,Allocator>::search_ex(co
 		}
 		*/
 	}
-	auto W_ex = search_layer_ex(u, eps, ef, 0);
-	W_ex = select_neighbors_simple(q, W_ex, k);
+	// auto W_ex = search_layer_ex(u, eps, ef, 0);
+	auto W_ex = beam_search_ex(u, eps, ef, 0);
+	auto R = select_neighbors_simple(q, W_ex, k);
 	std::vector<std::tuple<uint32_t,uint32_t,float>> res;
+	/*
 	while(W_ex.size()>0)
 	{
 		res.push_back({U::get_id(W_ex.top().u->data), W_ex.top().depth, W_ex.top().d});
 		W_ex.pop();
 	}
+	*/
+	for(const auto &e : R)
+		res.push_back({U::get_id(e.u->data), e.depth, e.d});
 	return res;
 }
 
