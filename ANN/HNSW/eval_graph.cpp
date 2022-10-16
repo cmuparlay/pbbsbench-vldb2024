@@ -9,7 +9,10 @@
 #include "HNSW.hpp"
 #include "dist_ang.hpp"
 // #include "dist_l2.hpp"
+#include "debug.hpp"
 using ANN::HNSW;
+
+parlay::sequence<parlay::sequence<std::pair<float,float>>> dist_in_search;
 
 // it will change the file string
 auto load_fvec(char *file)
@@ -60,6 +63,51 @@ void store_to_HDF5(const char *file, const T &res, uint32_t bound1, uint32_t bou
 	H5::DataSet dset_dep = h5f_out.createDataSet("depth", H5::PredType::NATIVE_UINT32, dspace_out);
 	dset_dep.write(res_dep.get(), H5::PredType::NATIVE_UINT32);
 }
+
+template<typename T>
+void store_to_HDF5(const char *file, const T &res)
+{
+	H5::H5File h5f_out(file, H5F_ACC_TRUNC);
+
+	H5::DSetCreatPropList cparms;
+	hsize_t chunk_dims[2] = {16, 128};
+	cparms.setChunk(2, chunk_dims);
+	float fill_val = 0;
+	cparms.setFillValue(H5::PredType::NATIVE_FLOAT, &fill_val);
+
+	hsize_t bound_out[2] = {res.size(), 128};
+	hsize_t bound_out_max[2] = {H5S_UNLIMITED, H5S_UNLIMITED};
+	H5::DataSpace dspace_out(2, bound_out, bound_out_max);
+
+	H5::DataSet dset_min = h5f_out.createDataSet("dist_min", H5::PredType::NATIVE_FLOAT, dspace_out, cparms);
+	H5::DataSet dset_max = h5f_out.createDataSet("dist_max", H5::PredType::NATIVE_FLOAT, dspace_out, cparms);
+
+	for(size_t i=0; i<res.size(); ++i)
+	{
+		const auto &e = res[i];
+		parlay::sequence<float> res_d(e.size());
+		parlay::parallel_for(0, e.size(), [&](size_t j){
+			res_d[j] = std::get<0>(e[j]);
+		});
+		bound_out[1] = e.size();
+		dset_min.extend(bound_out);
+
+		dspace_out = dset_min.getSpace();
+		hsize_t offset[2] = {i,0};
+		hsize_t dim[2] = {1,e.size()};
+		dspace_out.selectHyperslab(H5S_SELECT_SET, dim, offset);
+
+		H5::DataSpace dpsace_mem(2, dim);
+		dset_min.write(res_d.data(), H5::PredType::NATIVE_FLOAT, dpsace_mem, dspace_out);
+
+		parlay::parallel_for(0, e.size(), [&](size_t j){
+			res_d[j] = std::get<1>(e[j]);
+		});
+		dset_max.extend(bound_out);
+		dset_max.write(res_d.data(), H5::PredType::NATIVE_FLOAT, dpsace_mem, dspace_out);
+	}
+}
+
 
 // it will change the file string
 auto load_ivec(char *file)
@@ -189,7 +237,7 @@ void query(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
 		printf(__func__);
 		puts(
 			"-q <queryFile> -o <outputFile>"
-			"-ef <ef_query> [-r <recall@R>=1] [-k <numQuery>=all]"
+			"-ef <ef_query> [-r <recall@R>=1] [-k <numQuery>=all] [-d <distDump>]"
 		);
 		return;
 	};
@@ -200,10 +248,14 @@ void query(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
 	uint32_t cnt_rank_cmp = param.getOptionIntValue("-r", 1);
 	const uint32_t ef = param.getOptionIntValue("-ef", cnt_rank_cmp*50);
 	const uint32_t cnt_pts_query = param.getOptionIntValue("-k", q.size());
+	const char* dump_dist = param.getOptionValue("-d");
+
+	if(dump_dist)
+		dist_in_search.resize(cnt_pts_query);
 
 	std::vector<std::tuple<uint32_t,uint32_t,float>> res(cnt_pts_query*cnt_rank_cmp);
 	parlay::parallel_for(0, cnt_pts_query, [&](size_t i){
-		const auto t = g.search_ex(q[i], cnt_rank_cmp, ef);
+		const auto t = g.search_ex(q[i], cnt_rank_cmp, ef, dump_dist?(i<<2)|2:0);
 		for(uint32_t j=0; j<cnt_rank_cmp; ++j)
 			res[i*cnt_rank_cmp+j] = t[j];
 	});
@@ -212,6 +264,12 @@ void query(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
 	const char* file_out = param.getOptionValue("-o");
 	store_to_HDF5(file_out, res, cnt_pts_query, cnt_rank_cmp);
 	t.next("Write to output file");
+
+	if(dump_dist)
+	{
+		store_to_HDF5(dump_dist, dist_in_search);
+		t.next("Write the dump file");
+	}
 }
 
 void output_neighbor(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
@@ -232,7 +290,7 @@ void output_neighbor(HNSW<descr_fvec> &g, commandLine param, parlay::internal::t
 		scanf("%u%u%u%u%u", &ef, &recall, &begin, &end, &stripe);
 		for(uint32_t i=begin; i<end; i+=stripe)
 		{
-			auto res = g.search_ex(q[i], recall, ef, true);
+			auto res = g.search_ex(q[i], recall, ef, 1);
 			printf("Neighbors of %u\n", i);
 			for(auto it=res.crbegin(); it!=res.crend(); ++it)
 			{

@@ -26,6 +26,7 @@
 #include <parlay/primitives.h>
 #include <parlay/delayed_sequence.h>
 #include <parlay/random.h>
+#include "debug.hpp"
 #define DEBUG_OUTPUT 0
 #if DEBUG_OUTPUT
 #define debug_output(...) fprintf(stderr, __VA_ARGS__)
@@ -68,8 +69,8 @@ public:
 	template<typename G>
 	HNSW(const std::string &filename_model, G getter);
 
-	std::vector<std::pair<uint32_t,float>> search(const T &q, uint32_t k, uint32_t ef, bool verbose=false);
-	std::vector<std::tuple<uint32_t,uint32_t,float>> search_ex(const T &q, uint32_t k, uint32_t ef, bool verbose=false);
+	std::vector<std::pair<uint32_t,float>> search(const T &q, uint32_t k, uint32_t ef, uint64_t verbose=0);
+	std::vector<std::tuple<uint32_t,uint32_t,float>> search_ex(const T &q, uint32_t k, uint32_t ef, uint64_t verbose=0);
 	// save the current model to a file
 	void save(const std::string &filename_model) const;
 public:
@@ -332,9 +333,9 @@ public:
 		return res;
 	}
 
-	auto search_layer(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, bool verbose=false) const; // To static
-	auto search_layer_ex(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, bool verbose=false) const; // To static
-	auto beam_search_ex(const node &u, const std::vector<node*> &eps, uint32_t beamSize, uint32_t l_c, bool verbose=false) const;
+	auto search_layer(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose=0) const; // To static
+	auto search_layer_ex(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose=0) const; // To static
+	auto beam_search_ex(const node &u, const std::vector<node*> &eps, uint32_t beamSize, uint32_t l_c, uint64_t verbose=0) const;
 	auto get_threshold_m(uint32_t level){
 		return level==0? m*2: m;
 	}
@@ -820,11 +821,11 @@ void HNSW<U,Allocator>::insert(Iter begin, Iter end, bool from_blank)
 }
 
 template<typename U, template<typename> class Allocator>
-auto HNSW<U,Allocator>::search_layer(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, bool verbose) const
+auto HNSW<U,Allocator>::search_layer(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose) const
 {
 	debug_output("begin search layer\n");
-	// auto W_ex = search_layer_ex(u, eps, ef, l_c, verbose);
-	auto W_ex = beam_search_ex(u, eps, ef, l_c);
+	auto W_ex = search_layer_ex(u, eps, ef, l_c, verbose);
+	// auto W_ex = beam_search_ex(u, eps, ef, l_c);
 	// std::priority_queue<dist,std::vector<dist>,farthest> W;
 	parlay::sequence<dist> W(W_ex.begin(), W_ex.end());
 	debug_output("end search layer\n");
@@ -832,10 +833,10 @@ auto HNSW<U,Allocator>::search_layer(const node &u, const std::vector<node*> &ep
 }
 
 template<typename U, template<typename> class Allocator>
-auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, bool verbose) const
+auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose) const
 {
 	auto verbose_output = [&](const char *fmt, ...){
-		if(!verbose) return;
+		if(!(verbose&1)) return;
 
 		va_list args;
 		va_start(args, fmt);
@@ -843,7 +844,9 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> 
 		va_end(args);
 	};
 
-	auto *indeg = verbose? get_indeg(l_c): reinterpret_cast<const uint32_t*>(node_pool.data());
+	auto &dist_range = dist_in_search[verbose>>2];
+
+	auto *indeg = (verbose&1)? get_indeg(l_c): reinterpret_cast<const uint32_t*>(node_pool.data());
 	// std::vector<bool> visited(n);
 	// TODO: Try hash to an array
 	// TODO: monitor the size of `visited`
@@ -878,6 +881,9 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> 
 		// if(C[0].d>W[0].d) break;
 		if(C_acc.size()==cnt_used) break;
 		if(l_c==0) total_eval++;
+
+		if(verbose&2)
+			dist_range.push_back({C.begin()->d,C.rbegin()->d});
 		/*
 		const auto dc = C[0].depth;
 		const auto &c = *(C[0].u);
@@ -973,7 +979,7 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> 
 }
 
 template<typename U, template<typename> class Allocator>
-auto HNSW<U,Allocator>::beam_search_ex(const node &u, const std::vector<node*> &eps, uint32_t beamSize, uint32_t l_c, bool verbose) const
+auto HNSW<U,Allocator>::beam_search_ex(const node &u, const std::vector<node*> &eps, uint32_t beamSize, uint32_t l_c, uint64_t verbose) const
 // std::pair<parlay::sequence<dist_ex>, parlay::sequence<dist_ex>> beam_search(
 		// T* p_coords, int beamSize)
 {
@@ -1101,7 +1107,7 @@ auto HNSW<U,Allocator>::beam_search_ex(const node &u, const std::vector<node*> &
 }
 
 template<typename U, template<typename> class Allocator>
-std::vector<std::pair<uint32_t,float>> HNSW<U,Allocator>::search(const T &q, uint32_t k, uint32_t ef, bool verbose)
+std::vector<std::pair<uint32_t,float>> HNSW<U,Allocator>::search(const T &q, uint32_t k, uint32_t ef, uint64_t verbose)
 {
 	auto res_ex = search_ex(q,k,ef,verbose);
 	std::vector<std::pair<uint32_t,float>> res;
@@ -1113,7 +1119,7 @@ std::vector<std::pair<uint32_t,float>> HNSW<U,Allocator>::search(const T &q, uin
 }
 
 template<typename U, template<typename> class Allocator>
-std::vector<std::tuple<uint32_t,uint32_t,float>> HNSW<U,Allocator>::search_ex(const T &q, uint32_t k, uint32_t ef, bool verbose)
+std::vector<std::tuple<uint32_t,uint32_t,float>> HNSW<U,Allocator>::search_ex(const T &q, uint32_t k, uint32_t ef, uint64_t verbose)
 {
 	node u{0, q, nullptr}; // To optimize
 	// std::priority_queue<dist,std::vector<dist>,farthest> W;
