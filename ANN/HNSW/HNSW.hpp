@@ -31,7 +31,7 @@
 #if DEBUG_OUTPUT
 #define debug_output(...) fprintf(stderr, __VA_ARGS__)
 #else
-#define debug_output(...) do{__VA_ARGS__;}while(0)
+#define debug_output(...) do{[](...){}(__VA_ARGS__);}while(0)
 #endif // DEBUG_OUTPUT
 
 namespace ANN{
@@ -273,15 +273,19 @@ public:
 						break;
 					}
 				*/
+				/*
 				if(nbh.find(e.u)!=nbh.end())
 					is_good = false;
+				*/
 			}
 
 			if(is_good)
 			{
 				R.push_back(e.u);
+				/*				
 				for(auto *pv : neighbourhood(*e.u,level))
 					nbh.insert(pv);
+				*/
 			}
 			else
 				W_d.push_back(e);
@@ -325,7 +329,7 @@ public:
 		// static thread_local int32_t anchor;
 		// uint32_t esp;
 		// asm volatile("movl %0, %%esp":"=a"(esp));
-		static thread_local std::hash<std::thread::id> h;
+		// static thread_local std::hash<std::thread::id> h;
 		// static thread_local std::mt19937 gen{h(std::this_thread::get_id())};
 		static thread_local std::mt19937 gen{parlay::worker_id()};
 		static thread_local std::uniform_real_distribution<> dis(std::numeric_limits<float>::min(), 1.0);
@@ -335,6 +339,7 @@ public:
 
 	auto search_layer(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose=0) const; // To static
 	auto search_layer_ex(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose=0) const; // To static
+	auto search_layer_new_ex(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose=0) const; // To static
 	auto beam_search_ex(const node &u, const std::vector<node*> &eps, uint32_t beamSize, uint32_t l_c, uint64_t verbose=0) const;
 	auto get_threshold_m(uint32_t level){
 		return level==0? m*2: m;
@@ -583,7 +588,8 @@ HNSW<T,Allocator>::HNSW(Iter begin, Iter end, uint32_t dim_, float m_l_, uint32_
 
 	if(n==0) return;
 
-	auto perm = parlay::random_permutation<uint32_t>(n, 1206);
+	std::random_device rd;
+	auto perm = parlay::random_permutation<uint32_t>(n, rd());
 	auto rand_seq = parlay::delayed_seq<T>(n, [&](uint32_t i){
 		return *(begin+perm[i]);
 	});
@@ -834,6 +840,69 @@ auto HNSW<U,Allocator>::search_layer(const node &u, const std::vector<node*> &ep
 
 template<typename U, template<typename> class Allocator>
 auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose) const
+{
+	parlay::sequence<std::pair<float,float>> dummy;
+	auto &dist_range = verbose&2? dist_in_search[verbose>>2]: dummy;
+	std::vector<bool> visited(n);
+	// TODO: Try hash to an array
+	// TODO: monitor the size of `visited`
+	// std::set<uint32_t> visited;
+	// std::priority_queue<dist_ex,std::vector<dist_ex>,nearest> C;
+	// std::priority_queue<dist_ex,std::vector<dist_ex>,farthest> W;
+	parlay::sequence<dist_ex> C, W;
+
+	for(auto *ep : eps)
+	{
+		visited[U::get_id(ep->data)] = true;
+		// visited.insert(U::get_id(ep->data));
+		const auto d = U::distance(u.data,ep->data,dim);
+		C.push_back({d,ep,1});
+		W.push_back({d,ep,1});
+	}
+	std::make_heap(C.begin(), C.end(), nearest());
+	std::make_heap(W.begin(), W.end(), farthest());
+
+	while(C.size()>0)
+	{
+		// const auto &f = *(W[0].u);
+		// if(U::distance(c.data,u.data,dim)>U::distance(f.data,u.data,dim))
+		// if(C[0].d>W[0].d) break;
+
+		if(verbose&2)
+			dist_range.push_back({C.begin()->d,C.rbegin()->d});
+
+		const auto dc = C[0].depth;
+		const auto &c = *(C[0].u);
+		std::pop_heap(C.begin(), C.end(), nearest());
+		C.pop_back();
+		for(auto *pv: neighbourhood(c, l_c))
+		{
+			if(visited[U::get_id(pv->data)]) continue;
+			visited[U::get_id(pv->data)] = true;
+			// if(!visited.insert(U::get_id(pv->data)).second) continue;
+			// const auto &f = *(W[0].u);
+			// if(W.size()<ef||U::distance(pv->data,u.data,dim)<U::distance(f.data,u.data,dim))
+			const auto d = U::distance(u.data,pv->data,dim);
+			if(W.size()<ef||d<W[0].d)
+			{
+				C.push_back({d,pv,dc+1});
+				std::push_heap(C.begin(), C.end(), nearest());
+				W.push_back({d,pv,dc+1});
+				std::push_heap(W.begin(), W.end(), farthest());
+				if(W.size()>ef)
+				{
+					std::pop_heap(W.begin(), W.end(), farthest());
+					W.pop_back();
+				}
+			}
+		}
+	}
+	// const_cast<std::atomic<size_t>&>(total_visited) += visited.size();
+	return W;
+}
+
+template<typename U, template<typename> class Allocator>
+auto HNSW<U,Allocator>::search_layer_new_ex(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose) const
 {
 	auto verbose_output = [&](const char *fmt, ...){
 		if(!(verbose&1)) return;

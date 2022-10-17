@@ -26,7 +26,7 @@ std::pair<std::unique_ptr<T[]>,std::array<uint32_t,2>> read_array_from_HDF5(cons
 		H5::PredType::NATIVE_UINT32: H5::PredType::NATIVE_FLOAT;
 	dset.read(buffer.get(), type_H5data, H5::DataSpace(1,&bound_1d,NULL), dspace);
 
-	return {std::move(buffer), std::array<uint32_t,2>{{bound[0],bound[1]}}};
+	return {std::move(buffer), std::array<uint32_t,2>{{uint32_t(bound[0]),uint32_t(bound[1])}}};
 }
 
 #endif // __H5_OPS_HPP__
