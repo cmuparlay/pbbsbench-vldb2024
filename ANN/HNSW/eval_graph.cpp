@@ -12,7 +12,9 @@
 #include "debug.hpp"
 using ANN::HNSW;
 
-parlay::sequence<parlay::sequence<std::pair<float,float>>> dist_in_search;
+parlay::sequence<parlay::sequence<std::array<float,5>>> dist_in_search;
+parlay::sequence<parlay::sequence<std::array<float,5>>> vc_in_search;
+// parlay::sequence<uint32_t> round_in_search;
 
 // it will change the file string
 auto load_fvec(char *file)
@@ -67,44 +69,54 @@ void store_to_HDF5(const char *file, const T &res, uint32_t bound1, uint32_t bou
 template<typename T>
 void store_to_HDF5(const char *file, const T &res)
 {
+	const size_t cnt_row = res.size();
+	auto size_each = parlay::delayed_seq<size_t>(cnt_row, [&](size_t i){
+		return res[i].size();
+	});
+	const size_t cnt_col = parlay::reduce(size_each, parlay::maxm<size_t>());
+
 	H5::H5File h5f_out(file, H5F_ACC_TRUNC);
+	// hsize_t bound_out[2] = {res.size()+1, 128};
+	hsize_t bound_out[2] = {cnt_row, cnt_col};
+	// hsize_t bound_out_max[2] = {H5S_UNLIMITED, H5S_UNLIMITED};
+	H5::DataSpace dspace_out(2, bound_out);
 
 	H5::DSetCreatPropList cparms;
-	hsize_t chunk_dims[2] = {16, 128};
-	cparms.setChunk(2, chunk_dims);
+	// hsize_t chunk_dims[2] = {16, 128};
+	// cparms.setChunk(2, chunk_dims);
 	float fill_val = 0;
 	cparms.setFillValue(H5::PredType::NATIVE_FLOAT, &fill_val);
 
-	hsize_t bound_out[2] = {res.size(), 128};
-	hsize_t bound_out_max[2] = {H5S_UNLIMITED, H5S_UNLIMITED};
-	H5::DataSpace dspace_out(2, bound_out, bound_out_max);
-
-	H5::DataSet dset_min = h5f_out.createDataSet("dist_min", H5::PredType::NATIVE_FLOAT, dspace_out, cparms);
-	H5::DataSet dset_max = h5f_out.createDataSet("dist_max", H5::PredType::NATIVE_FLOAT, dspace_out, cparms);
+	H5::DataSet dset[5];
+	for(uint32_t rank=0; rank<5; ++rank)
+	{
+		char name[32];
+		sprintf(name, "dist_%u", rank*25);
+		dset[rank] = h5f_out.createDataSet(name, H5::PredType::NATIVE_FLOAT, dspace_out, cparms);
+	}
 
 	for(size_t i=0; i<res.size(); ++i)
 	{
 		const auto &e = res[i];
-		parlay::sequence<float> res_d(e.size());
-		parlay::parallel_for(0, e.size(), [&](size_t j){
-			res_d[j] = std::get<0>(e[j]);
-		});
-		bound_out[1] = e.size();
-		dset_min.extend(bound_out);
-
-		dspace_out = dset_min.getSpace();
-		hsize_t offset[2] = {i,0};
 		hsize_t dim[2] = {1,e.size()};
+		H5::DataSpace dpsace_mem(2, dim);
+	/*
+		bound_out[1] = e.size();
+		dset[0].extend(bound_out);
+		dspace_out = dset[0].getSpace();
+	*/
+		hsize_t offset[2] = {i,0};
 		dspace_out.selectHyperslab(H5S_SELECT_SET, dim, offset);
 
-		H5::DataSpace dpsace_mem(2, dim);
-		dset_min.write(res_d.data(), H5::PredType::NATIVE_FLOAT, dpsace_mem, dspace_out);
-
-		parlay::parallel_for(0, e.size(), [&](size_t j){
-			res_d[j] = std::get<1>(e[j]);
-		});
-		dset_max.extend(bound_out);
-		dset_max.write(res_d.data(), H5::PredType::NATIVE_FLOAT, dpsace_mem, dspace_out);
+		parlay::sequence<float> res_d(e.size());
+		for(uint32_t rank=0; rank<5; ++rank)
+		{
+			parlay::parallel_for(0, e.size(), [&](size_t j){
+				res_d[j] = e[j][rank];
+			});
+			// dset[rank].extend(bound_out);
+			dset[rank].write(res_d.data(), H5::PredType::NATIVE_FLOAT, dpsace_mem, dspace_out);
+		}
 	}
 }
 
@@ -228,6 +240,9 @@ void output_recall(HNSW<descr_fvec> &g, commandLine param, parlay::internal::tim
 		putchar('\n');
 	}
 	printf("#all shot: %u (%.2f)\n", cnt_all_shot, float(cnt_all_shot)/cnt_pts_query);
+	printf("# visited: %lu\n", g.total_visited.load());
+	printf("# eval: %lu\n", g.total_eval.load());
+	printf("size of C: %lu\n", g.total_size_C.load());
 }
 
 void query(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
@@ -251,7 +266,11 @@ void query(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
 	const char* dump_dist = param.getOptionValue("-d");
 
 	if(dump_dist)
+	{
 		dist_in_search.resize(cnt_pts_query);
+		vc_in_search.resize(cnt_pts_query);
+		// round_in_search.resize(cnt_pts_query);
+	}
 
 	std::vector<std::tuple<uint32_t,uint32_t,float>> res(cnt_pts_query*cnt_rank_cmp);
 	parlay::parallel_for(0, cnt_pts_query, [&](size_t i){
@@ -268,7 +287,12 @@ void query(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
 	if(dump_dist)
 	{
 		store_to_HDF5(dump_dist, dist_in_search);
+		char name_vc[64];
+		sprintf(name_vc, "%s.vc", dump_dist);
+		store_to_HDF5(name_vc, vc_in_search);
 		t.next("Write the dump file");
+		for(size_t i=0; i<cnt_pts_query; ++i)
+			fprintf(stderr, "%ld\n", dist_in_search[i].size());
 	}
 }
 

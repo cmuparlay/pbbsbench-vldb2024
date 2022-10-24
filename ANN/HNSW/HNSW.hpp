@@ -830,8 +830,9 @@ template<typename U, template<typename> class Allocator>
 auto HNSW<U,Allocator>::search_layer(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose) const
 {
 	debug_output("begin search layer\n");
-	auto W_ex = search_layer_ex(u, eps, ef, l_c, verbose);
-	// auto W_ex = beam_search_ex(u, eps, ef, l_c);
+	// auto W_ex = search_layer_ex(u, eps, ef, l_c, verbose);
+	// auto W_ex = search_layer_new_ex(u, eps, ef, l_c, verbose);
+	auto W_ex = beam_search_ex(u, eps, ef, l_c);
 	// std::priority_queue<dist,std::vector<dist>,farthest> W;
 	parlay::sequence<dist> W(W_ex.begin(), W_ex.end());
 	debug_output("end search layer\n");
@@ -841,40 +842,67 @@ auto HNSW<U,Allocator>::search_layer(const node &u, const std::vector<node*> &ep
 template<typename U, template<typename> class Allocator>
 auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose) const
 {
-	parlay::sequence<std::pair<float,float>> dummy;
-	auto &dist_range = verbose&2? dist_in_search[verbose>>2]: dummy;
+	auto &dist_range = dist_in_search[verbose>>2];
 	std::vector<bool> visited(n);
 	// TODO: Try hash to an array
 	// TODO: monitor the size of `visited`
 	// std::set<uint32_t> visited;
 	// std::priority_queue<dist_ex,std::vector<dist_ex>,nearest> C;
 	// std::priority_queue<dist_ex,std::vector<dist_ex>,farthest> W;
-	parlay::sequence<dist_ex> C, W;
+	parlay::sequence<dist_ex> W;
+	std::set<dist_ex,farthest> C;
 
 	for(auto *ep : eps)
 	{
 		visited[U::get_id(ep->data)] = true;
 		// visited.insert(U::get_id(ep->data));
 		const auto d = U::distance(u.data,ep->data,dim);
-		C.push_back({d,ep,1});
+		// C.push_back({d,ep,1});
+		C.insert({d,ep,1});
 		W.push_back({d,ep,1});
 	}
-	std::make_heap(C.begin(), C.end(), nearest());
+	// std::make_heap(C.begin(), C.end(), nearest());
 	std::make_heap(W.begin(), W.end(), farthest());
 
+	// uint32_t cnt_inc = 0;
+	// float dist_last = 1e10;
 	while(C.size()>0)
 	{
 		// const auto &f = *(W[0].u);
 		// if(U::distance(c.data,u.data,dim)>U::distance(f.data,u.data,dim))
-		// if(C[0].d>W[0].d) break;
+		if(C.begin()->d>W[0].d) break;
 
 		if(verbose&2)
-			dist_range.push_back({C.begin()->d,C.rbegin()->d});
+		{
+			std::array<float,5> t;
 
-		const auto dc = C[0].depth;
-		const auto &c = *(C[0].u);
-		std::pop_heap(C.begin(), C.end(), nearest());
-		C.pop_back();
+			t[0] = W[0].d;
+			t[1] = W.size();
+			t[2] = C.size();
+			vc_in_search[verbose>>2].push_back(t);
+
+			auto it = C.begin();
+			const auto step = C.size()/4;
+			for(uint32_t i=0; i<4; ++i)
+				t[i]=it->d, std::advance(it,step);
+			t[4] = C.rbegin()->d;
+
+			dist_range.push_back(t);
+		}
+		/*
+		if(C.begin()->d>dist_last)
+		{
+			if(++cnt_inc>5) break;
+		}
+		else cnt_inc = 0;
+		dist_last = C.begin()->d;
+		*/
+
+		const auto dc = C.begin()->depth;
+		const auto &c = *(C.begin()->u);
+		// std::pop_heap(C.begin(), C.end(), nearest());
+		// C.pop_back();
+		C.erase(C.begin());
 		for(auto *pv: neighbourhood(c, l_c))
 		{
 			if(visited[U::get_id(pv->data)]) continue;
@@ -885,8 +913,9 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> 
 			const auto d = U::distance(u.data,pv->data,dim);
 			if(W.size()<ef||d<W[0].d)
 			{
-				C.push_back({d,pv,dc+1});
-				std::push_heap(C.begin(), C.end(), nearest());
+				C.insert({d,pv,dc+1});
+				// C.push_back({d,pv,dc+1});
+				// std::push_heap(C.begin(), C.end(), nearest());
 				W.push_back({d,pv,dc+1});
 				std::push_heap(W.begin(), W.end(), farthest());
 				if(W.size()>ef)
@@ -914,6 +943,7 @@ auto HNSW<U,Allocator>::search_layer_new_ex(const node &u, const std::vector<nod
 	};
 
 	auto &dist_range = dist_in_search[verbose>>2];
+	uint32_t cnt_eval = 0;
 
 	auto *indeg = (verbose&1)? get_indeg(l_c): reinterpret_cast<const uint32_t*>(node_pool.data());
 	// std::vector<bool> visited(n);
@@ -949,7 +979,7 @@ auto HNSW<U,Allocator>::search_layer_new_ex(const node &u, const std::vector<nod
 		// if(U::distance(c.data,u.data,dim)>U::distance(f.data,u.data,dim))
 		// if(C[0].d>W[0].d) break;
 		if(C_acc.size()==cnt_used) break;
-		if(l_c==0) total_eval++;
+		cnt_eval++;
 
 		if(verbose&2)
 			dist_range.push_back({C.begin()->d,C.rbegin()->d});
@@ -1039,6 +1069,7 @@ auto HNSW<U,Allocator>::search_layer_new_ex(const node &u, const std::vector<nod
 	{
 		total_visited += visited.size();
 		total_size_C += C.size();
+		total_eval += cnt_eval;
 	}
 	/*
 	std::sort(W.begin(), W.end(), farthest());
@@ -1052,7 +1083,7 @@ auto HNSW<U,Allocator>::beam_search_ex(const node &u, const std::vector<node*> &
 // std::pair<parlay::sequence<dist_ex>, parlay::sequence<dist_ex>> beam_search(
 		// T* p_coords, int beamSize)
 {
-	beamSize *= 2;
+	// beamSize *= 2;
 	// beamSize = 20000;
 	// initialize data structures
 	std::vector<dist_ex> visited;
@@ -1133,8 +1164,11 @@ auto HNSW<U,Allocator>::beam_search_ex(const node &u, const std::vector<node*> &
 		debug_output("\n");
 		auto pairCandidates =
 				parlay::map(candidates, make_pid);
+		/*
 		auto sortedCandidates =
 				parlay::unique(parlay::sort(pairCandidates, dist_less), dist_eq);
+		*/
+		auto &sortedCandidates= pairCandidates;
 		debug_output("size of sortedCandidates: %lu\n", sortedCandidates.size());
 		/*
 		auto f_iter = std::set_union(
@@ -1206,7 +1240,8 @@ std::vector<std::tuple<uint32_t,uint32_t,float>> HNSW<U,Allocator>::search_ex(co
 		}
 		*/
 	}
-	auto W_ex = search_layer_ex(u, eps, ef, 0, verbose);
+	// auto W_ex = search_layer_ex(u, eps, ef, 0, verbose);
+	auto W_ex = search_layer_new_ex(u, eps, ef, 0, verbose);
 	// auto W_ex = beam_search_ex(u, eps, ef, 0);
 	auto R = select_neighbors_simple(q, W_ex, k);
 	std::vector<std::tuple<uint32_t,uint32_t,float>> res;
