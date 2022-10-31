@@ -149,7 +149,7 @@ std::pair<char*, size_t> mmapStringFromFile(const char* filename) {
 }
 
 template<typename T, typename Conv>
-auto parse_vecs(const char* filename, Conv converter)
+auto parse_vecs(const char* filename, Conv converter, size_t max_num=0)
 {
   const auto [fileptr, length] = mmapStringFromFile(filename);
 
@@ -162,7 +162,9 @@ auto parse_vecs(const char* filename, Conv converter)
   std::cout << "Dimension = " << d << std::endl;
 
   const size_t vector_size = sizeof(d) + sizeof(T)*d;
-  const size_t num_vectors = length / vector_size;
+  size_t num_vectors = length / vector_size;
+  if(max_num && max_num<num_vectors)
+    num_vectors = max_num;
   // std::cout << "Num vectors = " << num_vectors << std::endl;
 
   typedef ptr_mapped<T,ptr_mapped_src::DISK> type_ptr;
@@ -175,7 +177,7 @@ auto parse_vecs(const char* filename, Conv converter)
     points[i] = converter(i, type_ptr(const_cast<T*>(begin)), type_ptr(const_cast<T*>(end)));
   });
 
-  return std::make_pair(points,d);
+  return std::make_pair(std::move(points),d);
 }
 /*
 auto parse_fvecs(const char* filename)
