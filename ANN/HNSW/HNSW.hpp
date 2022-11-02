@@ -82,7 +82,7 @@ public:
 		// uint32_t id;
 		uint32_t level;
 		T data;
-		std::vector<node*> *neighbors;
+		parlay::sequence<node*> *neighbors;
 	};
 
 	struct dist{
@@ -113,7 +113,7 @@ public:
 		}
 	};
 
-	std::vector<node*> entrance; // To init
+	parlay::sequence<node*> entrance; // To init
 	// auto m, max_m0, m_L; // To init
 	uint32_t dim;
 	float m_l;
@@ -123,24 +123,24 @@ public:
 	float alpha;
 	uint32_t n;
 	Allocator<node> allocator;
-	std::vector<node*> node_pool;
+	parlay::sequence<node*> node_pool;
 	mutable std::atomic<size_t> total_visited = 0;
 	mutable std::atomic<size_t> total_eval = 0;
 	mutable std::atomic<size_t> total_size_C = 0;
 
 	static auto neighbourhood(const node &u, uint32_t level)
-		-> std::vector<node*>&
+		-> parlay::sequence<node*>&
 	{
 		return u.neighbors[level];
 	}
 
 	// `set_neighbourhood` will consume `vNewConn`
-	static void set_neighbourhood(node &u, uint32_t level, std::vector<node*>& vNewConn)
+	static void set_neighbourhood(node &u, uint32_t level, parlay::sequence<node*>& vNewConn)
 	{
 		u.neighbors[level] = std::move(vNewConn);
 	}
 
-	static void add_connection(std::vector<node*> &neighbors, node &u, uint32_t level)
+	static void add_connection(parlay::sequence<node*> &neighbors, node &u, uint32_t level)
 	{
 		for(auto pv : neighbors)
 		{
@@ -166,7 +166,7 @@ public:
 		return res;
 		*/
 		(void)u;
-		std::vector<typename Queue::value_type> tie;
+		parlay::sequence<typename Queue::value_type> tie;
 		float dist_tie = 1e20;
 		while(C.size()>M)
 		{
@@ -210,7 +210,7 @@ public:
 		if(R.size()>M) R.resize(M);
 		/*
 		uint32_t size_R = std::min(C.size(),M);
-		std::vector<node*> R;
+		parlay::sequence<node*> R;
 		R.reserve(size_R);
 		for(const auto &e : C)
 			R.push_back(e.u);
@@ -221,13 +221,13 @@ public:
 
 	// To optimize
 	auto select_neighbors_heuristic(const T &u, 
-		/*const std::priority_queue<dist,std::vector<dist>,farthest> &C*/
+		/*const std::priority_queue<dist,parlay::sequence<dist>,farthest> &C*/
 		const parlay::sequence<dist> &C, uint32_t M,
 		uint32_t level, bool extendCandidate, bool keepPrunedConnections)
 	{
 		(void)extendCandidate;
 
-		// std::priority_queue<dist,std::vector<dist>,farthest> C_cp=C, W_d;
+		// std::priority_queue<dist,parlay::sequence<dist>,farthest> C_cp=C, W_d;
 		parlay::sequence<dist> W_d;
 		std::set<dist,cmp_id> W_tmp;
 		// while(!C_cp.empty())
@@ -247,7 +247,7 @@ public:
 			// C_cp.pop();
 		}
 
-		// std::priority_queue<dist,std::vector<dist>,nearest> W;
+		// std::priority_queue<dist,parlay::sequence<dist>,nearest> W;
 		parlay::sequence<dist> W(W_tmp.begin(), W_tmp.end());
 		std::sort(W.begin(), W.end(), farthest());
 		/*
@@ -256,7 +256,7 @@ public:
 		*/
 		W_tmp.clear();
 
-		std::vector<node*> R;
+		parlay::sequence<node*> R;
 		std::set<node*> nbh;
 		// while(W.size()>0 && R.size()<M)
 		for(const auto &e : W)
@@ -304,7 +304,7 @@ public:
 
 		// std::sort(W_d.begin(), W_d.end(), nearest());
 		auto it = W_d.begin();
-		// std::priority_queue<dist,std::vector<dist>,farthest> res;
+		// std::priority_queue<dist,parlay::sequence<dist>,farthest> res;
 		auto &res = R;
 		/*
 		for(const auto &r : R)
@@ -324,7 +324,7 @@ public:
 	}
 
 	auto select_neighbors(const T &u, 
-		/*const std::priority_queue<dist,std::vector<dist>,farthest> &C,*/
+		/*const std::priority_queue<dist,parlay::sequence<dist>,farthest> &C,*/
 		const parlay::sequence<dist> &C, uint32_t M,
 		uint32_t level, bool extendCandidate=false, bool keepPrunedConnections=false)
 	{
@@ -348,10 +348,10 @@ public:
 		return res;
 	}
 
-	auto search_layer(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose=0) const; // To static
-	auto search_layer_ex(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose=0) const; // To static
-	auto search_layer_new_ex(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose=0) const; // To static
-	auto beam_search_ex(const node &u, const std::vector<node*> &eps, uint32_t beamSize, uint32_t l_c, uint64_t verbose=0) const;
+	auto search_layer(const node &u, const parlay::sequence<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose=0) const; // To static
+	auto search_layer_ex(const node &u, const parlay::sequence<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose=0) const; // To static
+	auto search_layer_new_ex(const node &u, const parlay::sequence<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose=0) const; // To static
+	auto beam_search_ex(const node &u, const parlay::sequence<node*> &eps, uint32_t beamSize, uint32_t l_c, uint64_t verbose=0) const;
 	auto get_threshold_m(uint32_t level){
 		return level==0? m*2: m;
 	}
@@ -417,7 +417,7 @@ public:
 public:
 	auto get_deg(uint32_t level=0)
 	{
-		std::vector<uint32_t> res;
+		parlay::sequence<uint32_t> res;
 		res.reserve(node_pool.size());
 		for(const auto &e : node_pool)
 		{
@@ -572,7 +572,7 @@ HNSW<U,Allocator>::HNSW(const std::string &filename_model, G getter)
 	}
 	for(node *u : node_pool)
 	{
-		u->neighbors = new std::vector<node*>[u->level+1];
+		u->neighbors = new parlay::sequence<node*>[u->level+1];
 		for(uint32_t l=0; l<=u->level; ++l)
 		{
 			size_t size;
@@ -618,7 +618,7 @@ HNSW<T,Allocator>::HNSW(Iter begin, Iter end, uint32_t dim_, float m_l_, uint32_
 
 	const auto level_ep = get_level_random();
 	node *entrance_init = allocator.allocate(1);
-	new(entrance_init) node{level_ep, *rand_seq.begin(), new std::vector<node*>[level_ep+1]/*anything else*/};
+	new(entrance_init) node{level_ep, *rand_seq.begin(), new parlay::sequence<node*>[level_ep+1]/*anything else*/};
 	node_pool.push_back(entrance_init);
 	entrance.push_back(entrance_init);
 
@@ -678,8 +678,8 @@ void HNSW<U,Allocator>::insert(Iter begin, Iter end, bool from_blank)
 	const auto level_ep = entrance[0]->level;
 	const auto size_batch = std::distance(begin,end);
 	auto node_new = std::make_unique<node*[]>(size_batch);
-	auto nbh_new = std::make_unique<std::vector<node*>[]>(size_batch);
-	auto eps = std::make_unique<std::vector<node*>[]>(size_batch);
+	auto nbh_new = std::make_unique<parlay::sequence<node*>[]>(size_batch);
+	auto eps = std::make_unique<parlay::sequence<node*>[]>(size_batch);
 	//const float factor_m = from_blank? 0.5: 1;
 	const auto factor_m = 1;
 
@@ -694,7 +694,7 @@ void HNSW<U,Allocator>::insert(Iter begin, Iter end, bool from_blank)
 		const auto level_u = get_level_random();
 		auto *const pu = &pool[i];		// TODO: add pointer manager
 
-		new(pu) node{level_u, q, new std::vector<node*>[level_u+1]};
+		new(pu) node{level_u, q, new parlay::sequence<node*>[level_u+1]};
 		node_new[i] = pu;
 	});
 	}
@@ -849,25 +849,25 @@ void HNSW<U,Allocator>::insert(Iter begin, Iter end, bool from_blank)
 }
 
 template<typename U, template<typename> class Allocator>
-auto HNSW<U,Allocator>::search_layer(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose) const
+auto HNSW<U,Allocator>::search_layer(const node &u, const parlay::sequence<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose) const
 {
 	debug_output("begin search layer\n");
 	auto W_ex = search_layer_ex(u, eps, ef, l_c, verbose);
 	//auto W_ex = ef==1? beam_search_ex(u, eps, ef, l_c): search_layer_ex(u, eps, ef, l_c, verbose);
 	// auto W_ex = search_layer_new_ex(u, eps, ef, l_c, verbose);
-	// std::priority_queue<dist,std::vector<dist>,farthest> W;
+	// std::priority_queue<dist,parlay::sequence<dist>,farthest> W;
 	parlay::sequence<dist> W(W_ex.begin(), W_ex.end());
 	debug_output("end search layer\n");
 	return W;
 }
 
 template<typename U, template<typename> class Allocator>
-auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose) const
+auto HNSW<U,Allocator>::search_layer_ex(const node &u, const parlay::sequence<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose) const
 {
 	parlay::sequence<std::array<float,5>> dummy;
 	auto &dist_range = (verbose&2)? dist_in_search[verbose>>2]: dummy;
-	// std::vector<bool> visited(n);
-	//std::vector<uint32_t> visited(8192);
+	// parlay::sequence<bool> visited(n);
+	//parlay::sequence<uint32_t> visited(8192);
 	//const uint32_t mask = ef==1? 4: (1<<uint32_t(std::ceil(std::log2(ef*ef))-2))-1;
 	// fprintf(stderr, "ef: %u, mask: %u\n", ef, mask);
 	//parlay::sequence<uint32_t> visited(mask+1, n+1);
@@ -875,8 +875,8 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> 
 	// TODO: Try hash to an array
 	// TODO: monitor the size of `visited`
 	std::unordered_set<uint32_t> visited;
-	// std::priority_queue<dist_ex,std::vector<dist_ex>,nearest> C;
-	// std::priority_queue<dist_ex,std::vector<dist_ex>,farthest> W;
+	// std::priority_queue<dist_ex,parlay::sequence<dist_ex>,nearest> C;
+	// std::priority_queue<dist_ex,parlay::sequence<dist_ex>,farthest> W;
 	parlay::sequence<dist_ex> W;
 	std::set<dist_ex,farthest> C;
 
@@ -972,7 +972,7 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const std::vector<node*> 
 }
 
 template<typename U, template<typename> class Allocator>
-auto HNSW<U,Allocator>::search_layer_new_ex(const node &u, const std::vector<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose) const
+auto HNSW<U,Allocator>::search_layer_new_ex(const node &u, const parlay::sequence<node*> &eps, uint32_t ef, uint32_t l_c, uint64_t verbose) const
 {
 	auto verbose_output = [&](const char *fmt, ...){
 		if(!(verbose&1)) return;
@@ -988,12 +988,12 @@ auto HNSW<U,Allocator>::search_layer_new_ex(const node &u, const std::vector<nod
 	uint32_t cnt_eval = 0;
 
 	auto *indeg = (verbose&1)? get_indeg(l_c): reinterpret_cast<const uint32_t*>(node_pool.data());
-	// std::vector<bool> visited(n);
+	// parlay::sequence<bool> visited(n);
 	// TODO: Try hash to an array
 	// TODO: monitor the size of `visited`
 	std::set<uint32_t> visited;
-	// std::priority_queue<dist_ex,std::vector<dist_ex>,nearest> C;
-	// std::priority_queue<dist_ex,std::vector<dist_ex>,farthest> W;
+	// std::priority_queue<dist_ex,parlay::sequence<dist_ex>,nearest> C;
+	// std::priority_queue<dist_ex,parlay::sequence<dist_ex>,farthest> W;
 	parlay::sequence<dist_ex> /*C, W, */W_;
 	std::set<dist_ex,farthest> C, C_acc;
 	uint32_t cnt_used = 0;
@@ -1121,14 +1121,14 @@ auto HNSW<U,Allocator>::search_layer_new_ex(const node &u, const std::vector<nod
 }
 
 template<typename U, template<typename> class Allocator>
-auto HNSW<U,Allocator>::beam_search_ex(const node &u, const std::vector<node*> &eps, uint32_t beamSize, uint32_t l_c, uint64_t verbose) const
+auto HNSW<U,Allocator>::beam_search_ex(const node &u, const parlay::sequence<node*> &eps, uint32_t beamSize, uint32_t l_c, uint64_t verbose) const
 // std::pair<parlay::sequence<dist_ex>, parlay::sequence<dist_ex>> beam_search(
 		// T* p_coords, int beamSize)
 {
 	// beamSize *= 2;
 	// beamSize = 20000;
 	// initialize data structures
-	std::vector<dist_ex> visited;
+	parlay::sequence<dist_ex> visited;
 	parlay::sequence<dist_ex> frontier;
 	auto dist_less = [&](const dist_ex &a, const dist_ex &b) {
 		return a.d < b.d || (a.d == b.d && a.u < b.u);
@@ -1156,8 +1156,8 @@ auto HNSW<U,Allocator>::beam_search_ex(const node &u, const std::vector<node*> &
 	
 	// frontier.push_back(make_pid(eps[0]));
 
-	std::vector<dist_ex> unvisited_frontier;
-	// std::vector<dist_ex> unvisited_frontier(beamSize);
+	parlay::sequence<dist_ex> unvisited_frontier;
+	// parlay::sequence<dist_ex> unvisited_frontier(beamSize);
 	parlay::sequence<dist_ex> new_frontier;
 	// parlay::sequence<dist_ex> new_frontier(2 * beamSize);
 	bool not_done = true;
@@ -1267,7 +1267,7 @@ template<typename U, template<typename> class Allocator>
 parlay::sequence<std::tuple<uint32_t,uint32_t,float>> HNSW<U,Allocator>::search_ex(const T &q, uint32_t k, uint32_t ef, uint64_t verbose)
 {
 	node u{0, q, nullptr}; // To optimize
-	// std::priority_queue<dist,std::vector<dist>,farthest> W;
+	// std::priority_queue<dist,parlay::sequence<dist>,farthest> W;
 	auto eps = entrance;
 	for(int l_c=entrance[0]->level; l_c>0; --l_c) // TODO: fix the type
 	{
