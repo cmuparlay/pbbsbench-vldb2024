@@ -829,20 +829,18 @@ void HNSW<U,Allocator>::insert(Iter begin, Iter end, bool from_blank)
 				for(size_t k=0; k<nbh_v_add.size(); ++k)
 					candidates[k+nbh_v.size()] = dist{U::distance(get_node(nbh_v_add[k]).data,get_node(pv).data,dim), nbh_v_add[k]};
 
-				/*
-				std::sort(candidates.get(), candidates.get()+size_nbh_total, farthest());
+				std::sort(candidates.begin(), candidates.end(), farthest());
 
 				nbh_v.resize(m_s);
 				for(size_t k=0; k<m_s; ++k)
 					nbh_v[k] = candidates[k].u;
-				*/
 				/*
 				auto res = select_neighbors(get_node(pv).data, candidates, m_s, l_c);
 				nbh_v.clear();
 				for(auto *pu : res)
 					nbh_v.push_back(pu);
 				*/
-				nbh_v = select_neighbors(get_node(pv).data, candidates, m_s, l_c);
+				// nbh_v = select_neighbors(get_node(pv).data, candidates, m_s, l_c);
 			}
 			else nbh_v.insert(nbh_v.end(),nbh_v_add.begin(), nbh_v_add.end());
 		});
@@ -982,6 +980,8 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const parlay::sequence<no
 					std::pop_heap(W.begin(), W.end(), farthest());
 					W.pop_back();
 				}
+				if(C.size()>ef)
+					C.erase(std::prev(C.end()));
 			}
 		}
 	}
@@ -1310,8 +1310,18 @@ parlay::sequence<std::tuple<uint32_t,uint32_t,float>> HNSW<U,Allocator>::search_
 	auto W_ex = search_layer_ex(u, eps, ef, 0, verbose);
 	// auto W_ex = search_layer_new_ex(u, eps, ef, 0, verbose);
 	// auto W_ex = beam_search_ex(u, eps, ef, 0);
-	auto R = select_neighbors_simple(q, W_ex, k);
+	// auto R = select_neighbors_simple(q, W_ex, k);
+	
+	auto &R = W_ex;
+	if(R.size()>k)
+	{
+		std::nth_element(R.begin(), R.begin()+k, R.end(), farthest());
+		R.resize(k);
+	}
+	
+	std::sort(R.begin(), R.end(), farthest());
 	parlay::sequence<std::tuple<uint32_t,uint32_t,float>> res;
+	res.reserve(R.size());
 	/*
 	while(W_ex.size()>0)
 	{
