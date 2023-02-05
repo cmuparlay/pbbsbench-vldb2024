@@ -211,7 +211,7 @@ void output_recall(HNSW<descr_fvec> &g, commandLine param, parlay::internal::tim
 	const uint32_t ef = param.getOptionIntValue("-ef", cnt_rank_cmp*50);
 	const uint32_t cnt_pts_query = param.getOptionIntValue("-k", q.size());
 
-	std::vector<std::vector<std::pair<uint32_t,float>>> res(cnt_pts_query);
+	std::vector<parlay::sequence<std::pair<uint32_t,float>>> res(cnt_pts_query);
 	parlay::parallel_for(0, cnt_pts_query, [&](size_t i){
 		res[i] = g.search(q[i], cnt_rank_cmp, ef);
 	});
@@ -273,8 +273,11 @@ void query(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
 	}
 
 	std::vector<std::tuple<uint32_t,uint32_t,float>> res(cnt_pts_query*cnt_rank_cmp);
+	search_control ctrl{};
 	parlay::parallel_for(0, cnt_pts_query, [&](size_t i){
-		const auto t = g.search_ex(q[i], cnt_rank_cmp, ef, dump_dist?(i<<2)|2:0);
+		if(dump_dist)
+			ctrl.log_dist = ctrl.log_size = i;
+		const auto t = g.search_ex(q[i], cnt_rank_cmp, ef, ctrl);
 		for(uint32_t j=0; j<cnt_rank_cmp; ++j)
 			res[i*cnt_rank_cmp+j] = t[j];
 	});
@@ -314,7 +317,9 @@ void output_neighbor(HNSW<descr_fvec> &g, commandLine param, parlay::internal::t
 		scanf("%u%u%u%u%u", &ef, &recall, &begin, &end, &stripe);
 		for(uint32_t i=begin; i<end; i+=stripe)
 		{
-			auto res = g.search_ex(q[i], recall, ef, 1);
+			search_control ctrl{};
+			ctrl.verbose_output = true;
+			auto res = g.search_ex(q[i], recall, ef, ctrl);
 			printf("Neighbors of %u\n", i);
 			for(auto it=res.crbegin(); it!=res.crend(); ++it)
 			{
@@ -326,6 +331,70 @@ void output_neighbor(HNSW<descr_fvec> &g, commandLine param, parlay::internal::t
 	}
 }
 
+uint32_t cnt_hit(const parlay::sequence<std::tuple<uint32_t,uint32_t,float>> &res, const uint32_t *gt, uint32_t recall)
+{
+	uint32_t cnt = 0;
+	for(uint32_t j=0; j<recall; ++j)
+		if(std::find_if(res.begin(),res.end(),[&](const std::tuple<uint32_t,uint32_t,float> &p){
+			return std::get<0>(p)==gt[j];}) != res.end())
+		{
+			cnt++;
+		}
+	return cnt;
+}
+
+void recall_single(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
+{
+	if(param.getOption("-?"))
+	{
+		printf(__func__);
+		puts(" -q <queryFile> -g <groundtruthFile> [<ef_query> <recall> <query_index>] <ep>...");
+		return;
+	};
+	char* file_query = param.getOptionValue("-q");
+	char* file_groundtruth = param.getOptionValue("-g");
+	auto [q,_] = load_fvec(file_query);
+	auto [gt,rank_max] = load_ivec(file_groundtruth);
+
+	puts("Please input <ef_query> <recall> <query_index> <ep> in order");
+	while(true)
+	{
+		uint32_t ef, recall, qidx, enum_ep;
+		scanf("%u%u%u%u", &ef, &recall, &qidx, &enum_ep);
+		if(recall>rank_max)
+		{
+			fputs("recall is larger than the groundtruth rank", stderr);
+			continue;
+		}
+
+		search_control ctrl{};
+		ctrl.verbose_output = true;
+		if(enum_ep)
+		{
+			parlay::sequence<uint32_t> quality(g.n);
+			parlay::parallel_for(0, g.n, [&](size_t i){
+				ctrl.indicate_ep = i;
+				auto res = g.search_ex(q[qidx], recall, ef, ctrl);
+				quality[i] = cnt_hit(res, gt[qidx], recall);
+			});
+			uint32_t ep = parlay::max_element(quality)-quality.begin();
+			ctrl.indicate_ep = ep;
+			printf("Choose the best ep of %u\n", ep);
+		}
+
+		auto res = g.search_ex(q[qidx], recall, ef, ctrl);
+		printf("Neighbors of %u\n", qidx);
+		for(auto it=res.cbegin(); it!=res.cend(); ++it)
+		{
+			const auto [id,dep,dis] = *it;
+			printf("  [%u]\t%u\t%.6f\n", dep, id, dis);
+		}
+		putchar('\n');
+		uint32_t hit = cnt_hit(res, gt[qidx], recall);
+		printf("recall: %u/%u = %.2f%%\n", hit, recall, float(hit)/recall);
+	}
+}
+
 void count_number(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
 {
 	if(param.getOption("-?"))
@@ -334,8 +403,8 @@ void count_number(HNSW<descr_fvec> &g, commandLine param, parlay::internal::time
 		return;
 	};
 	std::map<uint32_t,uint32_t> cnt;
-	for(const auto *p : g.node_pool)
-		cnt[p->level]++;
+	for(const auto &e : g.node_pool)
+		cnt[e.level]++;
 	
 	uint32_t sum = 0;
 	for(int i=cnt.rbegin()->first; i>=0; --i)
@@ -391,6 +460,7 @@ int main(int argc, char **argv)
 	list_func["count"] = count_number;
 	list_func["query"] = query;
 	list_func["symm"] = symmetrize;
+	list_func["single"] = recall_single;
 	auto it_func = list_func.find(func);
 	if(it_func!=list_func.end())
 		it_func->second(g, param, t);

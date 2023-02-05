@@ -115,7 +115,9 @@ void output_recall(HNSW<descr_bvec> &g, parlay::internal::timer &t, uint32_t ef,
 	t.next("Doing search");
 	//auto t1 = std::chrono::high_resolution_clock::now();
 	parlay::parallel_for(0, cnt_query, [&](size_t i){
-		res[i] = g.search(q[i], recall, ef, flag_query);
+		// flag_query
+		search_control ctrl{};
+		res[i] = g.search(q[i], recall, ef, ctrl);
 	});
 	//auto t2 = std::chrono::high_resolution_clock::now();
 	double time_query = t.next_time();
