@@ -170,9 +170,9 @@ auto parse_vecs(const char* filename, Conv converter, size_t max_num=0)
   typedef ptr_mapped<T,ptr_mapped_src::DISK> type_ptr;
   parlay::sequence<decltype(converter(0,type_ptr(nullptr),type_ptr(nullptr)))> points(num_vectors);
 
-  parlay::parallel_for(0, num_vectors, [&] (size_t i) {
+  parlay::parallel_for(0, num_vectors, [&,fp=fileptr] (size_t i) {
     const size_t offset_in_bytes = vector_size*i + sizeof(d);  // skip dimension
-    const T* begin = (const T*)(fileptr + offset_in_bytes);
+    const T* begin = (const T*)(fp + offset_in_bytes);
     const T* end = begin + d;
     points[i] = converter(i, type_ptr(const_cast<T*>(begin)), type_ptr(const_cast<T*>(end)));
   });
@@ -224,9 +224,9 @@ auto parse_fvecs(const char* filename) {
 
   parlay::sequence<Tvec_point<float>> points(num_vectors);
 
-  parlay::parallel_for(0, num_vectors, [&] (size_t i) {
+  parlay::parallel_for(0, num_vectors, [&,fp=fileptr] (size_t i) {
     size_t offset_in_bytes = vector_size * i + 4;  // skip dimension
-    float* start = (float*)(fileptr + offset_in_bytes);
+    float* start = (float*)(fp + offset_in_bytes);
     float* end = start + d;
     points[i].id = i; 
     points[i].coordinates = parlay::make_slice(start, end);
@@ -253,9 +253,9 @@ auto parse_ivecs(const char* filename) {
 
   parlay::sequence<ivec_point> points(num_vectors);
 
-  parlay::parallel_for(0, num_vectors, [&] (size_t i) {
+  parlay::parallel_for(0, num_vectors, [&,fp=fileptr] (size_t i) {
     size_t offset_in_bytes = vector_size * i + 4;  // skip dimension
-    int* start = (int*)(fileptr + offset_in_bytes);
+    int* start = (int*)(fp + offset_in_bytes);
     int* end = start + 4*d;
     points[i].id = i; 
     points[i].coordinates = parlay::make_slice(start, end);
@@ -284,9 +284,9 @@ auto parse_bvecs(const char* filename) {
 
   parlay::sequence<Tvec_point<uint8_t>> points(num_vectors);
 
-  parlay::parallel_for(0, num_vectors, [&] (size_t i) {
+  parlay::parallel_for(0, num_vectors, [&,fp=fileptr] (size_t i) {
     size_t offset_in_bytes = vector_size * i + 4;  // skip dimension
-    uint8_t* start = (uint8_t*)(fileptr + offset_in_bytes);
+    uint8_t* start = (uint8_t*)(fp + offset_in_bytes);
     uint8_t* end = start + d;
     points[i].id = i; 
     points[i].coordinates = parlay::make_slice(start, end);
