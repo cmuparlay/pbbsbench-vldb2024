@@ -8,101 +8,34 @@
 // #include <memory>
 //#include <H5Cpp.h>
 #include "HNSW.hpp"
-//#include "dist_ang.hpp"
-#include "dist_l2.hpp"
+#include "dist.hpp"
 using ANN::HNSW;
 
-// it will change the file string
-/*
-auto load_fvec(char *file)
-{
-	char *spec_input = std::strchr(file, ':');
-	if(spec_input==nullptr)
+template<typename T>
+point_converter_default<T> to_point;
+
+template<typename T>
+class gt_converter{
+public:
+	using type = T*;
+	template<typename Iter>
+	type operator()([[maybe_unused]] uint32_t id, Iter begin, Iter end)
 	{
-		fputs("Unrecognized file spec",stderr);
-		return std::make_pair(parlay::sequence<fvec>(),uint32_t(0));
+		using type_src = typename std::iterator_traits<Iter>::value_type;
+		static_assert(std::is_convertible_v<type_src,T>, "Cannot convert to the target type");
+
+		const uint32_t n = std::distance(begin, end);
+
+		T *gt = new T[n];
+		for(uint32_t i=0; i<n; ++i)
+			gt[i] = *(begin+i);
+		return gt;
 	}
-	
-	*(spec_input++) = '\0';
-	parlay::sequence<fvec> ps;
-	uint32_t dim = 0;
-	if(spec_input[0]=='/')
-		std::tie(ps,dim) = ps_from_HDF5(file, spec_input);
-	else if(!std::strcmp(spec_input,"fvec"))
-		std::tie(ps,dim) = ps_from_SIFT(file);
-	else fputs("Unsupported file spec",stderr);
+};
 
-	return std::make_pair(ps,dim);
-}
-*/
-auto load_bvec(char *file, size_t max_num=0)
-{
-	char *spec_input = std::strchr(file, ':');
-	if(spec_input==nullptr)
-	{
-		fputs("Unrecognized file spec",stderr);
-		return std::make_pair(parlay::sequence<bvec>(),uint32_t(0));
-	}
-	
-	*(spec_input++) = '\0';
-	parlay::sequence<bvec> ps;
-	uint32_t dim = 0;
-	if(spec_input[0]=='/')
-		std::tie(ps,dim) = ps_from_HDF5(file, spec_input);
-	else if(!std::strcmp(spec_input,"bvec"))
-		std::tie(ps,dim) = ps_from_SIFT(file, max_num);
-	else fputs("Unsupported file spec",stderr);
-
-	return std::make_pair(std::move(ps),dim);
-}
-
-// it will change the file string
-auto load_ivec(char *file)
-{
-	char *spec_input = std::strchr(file, ':');
-	if(spec_input==nullptr)
-	{
-		fputs("Unrecognized file spec",stderr);
-		return std::make_pair(parlay::sequence<uint32_t*>(),uint32_t(0));
-	}
-	
-	*(spec_input++) = '\0';
-	parlay::sequence<uint32_t*> vec;
-	uint32_t bound1 = 0;
-	if(spec_input[0]=='/')
-	{
-		/*
-		auto [buffer_ptr,bound] = read_array_from_HDF5<uint32_t>(file, spec_input);
-		bound1 = bound[1];
-		auto *buffer = buffer_ptr.release();
-
-		vec.resize(bound[0]);
-		parlay::parallel_for(0, bound[0], [&](uint32_t i){
-			vec[i] = &buffer[i*bound1];
-		});
-		*/
-	}
-	else if(!std::strcmp(spec_input,"ivec"))
-		std::tie(vec,bound1) = parse_vecs<uint32_t>(file, [](size_t, auto begin, auto end){
-			typedef typename std::iterator_traits<decltype(begin)>::value_type type_elem;
-			if constexpr(std::is_same_v<decltype(begin),ptr_mapped<type_elem,ptr_mapped_src::DISK>>)
-			{
-				const auto *begin_raw=begin.get(), *end_raw=end.get();
-				const auto n = std::distance(begin_raw, end_raw);
-
-				type_elem *id = new type_elem[n];
-				parlay::parallel_for(0, n, [&](size_t i){
-					id[i] = static_cast<type_elem>(*(begin_raw+i));
-				});
-				return id;
-			}
-		});
-	else fputs("Unsupported file spec",stderr);
-
-	return std::make_pair(vec,bound1);
-}
-
-void output_recall(HNSW<descr_bvec> &g, parlay::internal::timer &t, uint32_t ef, uint32_t recall, uint32_t cnt_query, parlay::sequence<bvec> &q, parlay::sequence<uint32_t*> &gt, uint32_t rank_max)
+template<class U>
+void output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t recall, 
+	uint32_t cnt_query, parlay::sequence<typename U::type_point> &q, parlay::sequence<uint32_t*> &gt, uint32_t rank_max)
 {
 	g.total_visited = 0;
 	g.total_eval = 0;
@@ -167,7 +100,8 @@ void output_recall(HNSW<descr_bvec> &g, parlay::internal::timer &t, uint32_t ef,
 	puts("---");
 }
 
-void output_recall(HNSW<descr_bvec> &g, commandLine param, parlay::internal::timer &t)
+template<class U>
+void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 {
 	if(param.getOption("-?"))
 	{
@@ -180,14 +114,14 @@ void output_recall(HNSW<descr_bvec> &g, commandLine param, parlay::internal::tim
 	};
 	char* file_query = param.getOptionValue("-q");
 	char* file_groundtruth = param.getOptionValue("-g");
-	auto [q,_] = load_bvec(file_query);
+	auto [q,_] = load_point(file_query, to_point<typename U::type_elem>);
 	t.next("Read queryFile");
 
 	uint32_t cnt_rank_cmp = param.getOptionIntValue("-r", 1);
 //	const uint32_t ef = param.getOptionIntValue("-ef", cnt_rank_cmp*50);
 	const uint32_t cnt_pts_query = param.getOptionIntValue("-k", q.size());
 
-	auto [gt,rank_max] = load_ivec(file_groundtruth);
+	auto [gt,rank_max] = load_point(file_groundtruth, gt_converter<uint32_t>{});
 	for(uint32_t scale=1; scale<60; scale+=2)
 		output_recall(g, t, scale*cnt_rank_cmp, cnt_rank_cmp, cnt_pts_query, q, gt, rank_max);
 }
@@ -203,7 +137,7 @@ int main(int argc, char **argv)
 		"-efc <ef_construction> -alpha <alpha> -r <recall@R> [-b <batchBase>]"
 		"-in <inFile> ..."
 	);
-	char* file_in = parameter.getOptionValue("-in");
+	const char* file_in = parameter.getOptionValue("-in");
 	const uint32_t cnt_points = parameter.getOptionLongValue("-n", 0);
 	const float m_l = parameter.getOptionDoubleValue("-ml", 0.36);
 	const uint32_t m = parameter.getOptionIntValue("-m", 40);
@@ -212,21 +146,14 @@ int main(int argc, char **argv)
 	const float batch_base = parameter.getOptionDoubleValue("-b", 2);
 	const bool do_fixing = !!parameter.getOptionIntValue("-f", 0);
 	flag_query = parameter.getOptionIntValue("-flag", 0);
-
-	if(file_in==nullptr)
-		return fputs("in file is not indicated\n",stderr), 1;
-	
-	char *spec_input = std::strchr(file_in, ':');
-	if(spec_input==nullptr)
-		return fputs("Unrecognized file spec",stderr), 2;
 	
 	parlay::internal::timer t("HNSW", true);
 
-	auto [ps,dim] = load_bvec(file_in, cnt_points);
+	auto [ps,dim] = load_point(file_in, to_point<uint8_t>, cnt_points);
 	t.next("Read inFile");
 
 	fputs("Start building HNSW\n", stderr);
-	HNSW<descr_bvec> g(
+	HNSW<descr_l2<uint8_t>> g(
 		ps.begin(), ps.begin()+cnt_points, dim,
 		m_l, m, efc, alpha, batch_base, do_fixing
 	);

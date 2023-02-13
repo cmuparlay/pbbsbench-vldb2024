@@ -41,7 +41,7 @@
 using namespace benchIO;
 
 enum class ptr_mapped_src{
-  MEM, DISK
+  NATIVE, VOLATILE, PERSISTENT
 };
 
 namespace detail{
@@ -51,6 +51,12 @@ class ptr_mapped_impl
 {
   T *ptr_raw;
 public:
+  using difference_type = std::ptrdiff_t;
+  using value_type = std::remove_cv_t<T>;
+  using pointer = T*;
+  using reference = T&;
+  using iterator_category = std::random_access_iterator_tag;
+
   ptr_mapped_impl(){
   }
 
@@ -92,13 +98,55 @@ public:
     ++ptr_raw;
     return *this;
   }
+
+  ptr_mapped_impl& operator+=(size_t n){
+    ptr_raw += n;
+    return *this;
+  }
+
+  ptr_mapped_impl operator+(size_t n) const{
+    return ptr_raw+n;
+  }
+
+  ptr_mapped_impl& operator-=(size_t n){
+    ptr_raw -= n;
+    return *this;
+  }
+
+  ptr_mapped_impl operator-(size_t n) const{
+    return ptr_raw - n;
+  }
+
+  difference_type operator-(const ptr_mapped_impl &other) const{
+    return ptr_raw - other.ptr_raw;
+  }
+
+  reference operator[](size_t i) const{
+    return ptr_raw[i];
+  }
+
+  bool operator<(const ptr_mapped_impl &other) const{
+    return ptr_raw < other.ptr_raw;
+  }
+
+  bool operator>(const ptr_mapped_impl &other) const{
+    return other<*this;
+  }
+
+  bool operator>=(const ptr_mapped_impl &other) const{
+    return !(*this<other);
+  }
+
+  bool operator<=(const ptr_mapped_impl &other) const{
+    return !(*this>other);
+  }
 };
 
 } // namespace detail
 
 template<typename T, ptr_mapped_src Src>
-using ptr_mapped = std::conditional_t<Src==ptr_mapped_src::MEM, T*, detail::ptr_mapped_impl<T,Src>>;
-
+using ptr_mapped = std::conditional_t<Src==ptr_mapped_src::NATIVE, T*, detail::ptr_mapped_impl<T,Src>>;
+/*
 template<typename T, ptr_mapped_src Src>
 struct std::iterator_traits<detail::ptr_mapped_impl<T,Src>>
 {
@@ -108,7 +156,7 @@ struct std::iterator_traits<detail::ptr_mapped_impl<T,Src>>
   using reference = T&;
   using iterator_category = void;
 };
-
+*/
 // *************************************************************
 //  SOME DEFINITIONS
 // *************************************************************
@@ -148,37 +196,6 @@ std::pair<char*, size_t> mmapStringFromFile(const char* filename) {
   return std::make_pair(p, n);
 }
 
-template<typename T, typename Conv>
-auto parse_vecs(const char* filename, Conv converter, size_t max_num=0)
-{
-  const auto [fileptr, length] = mmapStringFromFile(filename);
-
-  // Each vector is 4 + sizeof(T)*d bytes.
-  // * first 4 bytes encode the dimension (as an uint32_t)
-  // * next d values are T-type variables representing vector components
-  // See http://corpus-texmex.irisa.fr/ for more details.
-
-  const uint32_t d = *((const uint32_t*)fileptr);
-  std::cout << "Dimension = " << d << std::endl;
-
-  const size_t vector_size = sizeof(d) + sizeof(T)*d;
-  size_t num_vectors = length / vector_size;
-  if(max_num && max_num<num_vectors)
-    num_vectors = max_num;
-  // std::cout << "Num vectors = " << num_vectors << std::endl;
-
-  typedef ptr_mapped<T,ptr_mapped_src::DISK> type_ptr;
-  parlay::sequence<decltype(converter(0,type_ptr(nullptr),type_ptr(nullptr)))> points(num_vectors);
-
-  parlay::parallel_for(0, num_vectors, [&,fp=fileptr] (size_t i) {
-    const size_t offset_in_bytes = vector_size*i + sizeof(d);  // skip dimension
-    const T* begin = (const T*)(fp + offset_in_bytes);
-    const T* end = begin + d;
-    points[i] = converter(i, type_ptr(const_cast<T*>(begin)), type_ptr(const_cast<T*>(end)));
-  });
-
-  return std::make_pair(std::move(points),d);
-}
 /*
 auto parse_fvecs(const char* filename)
 {
