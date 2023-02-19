@@ -186,6 +186,8 @@ int main(int argc, char **argv)
 	const char* type = parameter.getOptionValue("-type");
 	if(!strcmp(type,"uint8"))
 		run_test_helper(uint8_t{});
+	else if(!strcmp(type,"int8"))
+		run_test_helper(int8_t{});
 	else if(!strcmp(type,"float"))
 		run_test_helper(float{});
 	else throw std::invalid_argument("Unsupported element type");
