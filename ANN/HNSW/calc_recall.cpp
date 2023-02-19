@@ -5,6 +5,7 @@
 #include <string>
 #include <map>
 #include <chrono>
+#include <stdexcept>
 // #include <memory>
 //#include <H5Cpp.h>
 #include "HNSW.hpp"
@@ -126,17 +127,9 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 		output_recall(g, t, scale*cnt_rank_cmp, cnt_rank_cmp, cnt_pts_query, q, gt, rank_max);
 }
 
-int main(int argc, char **argv)
+template<typename U>
+void run_test(commandLine parameter) // intend to be pass-by-value manner
 {
-	for(int i=0; i<argc; ++i)
-		printf("%s ", argv[i]);
-	putchar('\n');
-
-	commandLine parameter(argc, argv, 
-		"-n <numInput> -ml <m_l> -m <m> "
-		"-efc <ef_construction> -alpha <alpha> -r <recall@R> [-b <batchBase>]"
-		"-in <inFile> ..."
-	);
 	const char* file_in = parameter.getOptionValue("-in");
 	const uint32_t cnt_points = parameter.getOptionLongValue("-n", 0);
 	const float m_l = parameter.getOptionDoubleValue("-ml", 0.36);
@@ -149,12 +142,13 @@ int main(int argc, char **argv)
 	
 	parlay::internal::timer t("HNSW", true);
 
-	auto [ps,dim] = load_point(file_in, to_point<uint8_t>, cnt_points);
+	using T = typename U::type_elem;
+	auto [ps,dim] = load_point(file_in, to_point<T>, cnt_points);
 	t.next("Read inFile");
 
 	fputs("Start building HNSW\n", stderr);
-	HNSW<descr_l2<uint8_t>> g(
-		ps.begin(), ps.begin()+cnt_points, dim,
+	HNSW<U> g(
+		ps.begin(), ps.begin()+ps.size(), dim,
 		m_l, m, efc, alpha, batch_base, do_fixing
 	);
 	t.next("Build index");
@@ -165,5 +159,35 @@ int main(int argc, char **argv)
 
 	output_recall(g, parameter, t);
 
+}
+
+int main(int argc, char **argv)
+{
+	for(int i=0; i<argc; ++i)
+		printf("%s ", argv[i]);
+	putchar('\n');
+
+	commandLine parameter(argc, argv, 
+		"-type <elemType> -dist <distance> -n <numInput> -ml <m_l> -m <m> "
+		"-efc <ef_construction> -alpha <alpha> -r <recall@R> [-b <batchBase>]"
+		"-in <inFile> ..."
+	);
+
+	const char *dist_func = parameter.getOptionValue("-dist");
+	auto run_test_helper = [&](auto type){ // emulate a generic lambda in C++20
+		using T = decltype(type);
+		if(!strcmp(dist_func,"L2"))
+			run_test<descr_l2<T>>(parameter);
+		else if(!strcmp(dist_func,"angular"))
+			run_test<descr_ang<T>>(parameter);
+		else throw std::invalid_argument("Unsupported distance type");
+	};
+
+	const char* type = parameter.getOptionValue("-type");
+	if(!strcmp(type,"uint8"))
+		run_test_helper(uint8_t{});
+	else if(!strcmp(type,"float"))
+		run_test_helper(float{});
+	else throw std::invalid_argument("Unsupported element type");
 	return 0;
 }
