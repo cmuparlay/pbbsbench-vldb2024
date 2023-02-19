@@ -6,8 +6,6 @@
 #include <map>
 #include <chrono>
 #include <stdexcept>
-// #include <memory>
-//#include <H5Cpp.h>
 #include "HNSW.hpp"
 #include "dist.hpp"
 using ANN::HNSW;
