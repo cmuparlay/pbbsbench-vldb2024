@@ -128,7 +128,7 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 template<typename U>
 void run_test(commandLine parameter) // intend to be pass-by-value manner
 {
-	const char* file_in = parameter.getOptionValue("-in");
+	const char *file_in = parameter.getOptionValue("-in");
 	const uint32_t cnt_points = parameter.getOptionLongValue("-n", 0);
 	const float m_l = parameter.getOptionDoubleValue("-ml", 0.36);
 	const uint32_t m = parameter.getOptionIntValue("-m", 40);
@@ -136,6 +136,7 @@ void run_test(commandLine parameter) // intend to be pass-by-value manner
 	const float alpha = parameter.getOptionDoubleValue("-alpha", 1);
 	const float batch_base = parameter.getOptionDoubleValue("-b", 2);
 	const bool do_fixing = !!parameter.getOptionIntValue("-f", 0);
+	const char *file_out = parameter.getOptionValue("-out");
 	flag_query = parameter.getOptionIntValue("-flag", 0);
 	
 	parlay::internal::timer t("HNSW", true);
@@ -155,8 +156,13 @@ void run_test(commandLine parameter) // intend to be pass-by-value manner
 	printf("total degree: %lu\n", cnt_degree);
 	t.next("Count degrees");
 
-	output_recall(g, parameter, t);
+	if(file_out)
+	{
+		g.save(file_out);
+		t.next("Write to the file");
+	}
 
+	output_recall(g, parameter, t);
 }
 
 int main(int argc, char **argv)
@@ -168,7 +174,7 @@ int main(int argc, char **argv)
 	commandLine parameter(argc, argv, 
 		"-type <elemType> -dist <distance> -n <numInput> -ml <m_l> -m <m> "
 		"-efc <ef_construction> -alpha <alpha> -r <recall@R> [-b <batchBase>]"
-		"-in <inFile> ..."
+		"-in <inFile> -out <outFile>"
 	);
 
 	const char *dist_func = parameter.getOptionValue("-dist");
