@@ -7,36 +7,37 @@
 // #include <memory>
 #include <H5Cpp.h>
 #include "HNSW.hpp"
-#include "dist_ang.hpp"
-// #include "dist_l2.hpp"
+#include "dist.hpp"
 #include "debug.hpp"
 using ANN::HNSW;
+
+typedef descr_ang<float> descr_fvec;
+
+template<typename T>
+point_converter_default<T> to_point;
+
+template<typename T>
+class gt_converter{
+public:
+	using type = T*;
+	template<typename Iter>
+	type operator()([[maybe_unused]] uint32_t id, Iter begin, Iter end)
+	{
+		using type_src = typename std::iterator_traits<Iter>::value_type;
+		static_assert(std::is_convertible_v<type_src,T>, "Cannot convert to the target type");
+
+		const uint32_t n = std::distance(begin, end);
+
+		T *gt = new T[n];
+		for(uint32_t i=0; i<n; ++i)
+			gt[i] = *(begin+i);
+		return gt;
+	}
+};
 
 parlay::sequence<parlay::sequence<std::array<float,5>>> dist_in_search;
 parlay::sequence<parlay::sequence<std::array<float,5>>> vc_in_search;
 // parlay::sequence<uint32_t> round_in_search;
-
-// it will change the file string
-auto load_fvec(char *file)
-{
-	char *spec_input = std::strchr(file, ':');
-	if(spec_input==nullptr)
-	{
-		fputs("Unrecognized file spec",stderr);
-		return std::make_pair(parlay::sequence<fvec>(),uint32_t(0));
-	}
-	
-	*(spec_input++) = '\0';
-	parlay::sequence<fvec> ps;
-	uint32_t dim = 0;
-	if(spec_input[0]=='/')
-		std::tie(ps,dim) = ps_from_HDF5(file, spec_input);
-	else if(std::strcmp(spec_input,"fvec"))
-		std::tie(ps,dim) = ps_from_SIFT(file);
-	else fputs("Unsupported file spec",stderr);
-
-	return std::make_pair(ps,dim);
-}
 
 template<typename T>
 void store_to_HDF5(const char *file, const T &res, uint32_t bound1, uint32_t bound2)
@@ -120,54 +121,9 @@ void store_to_HDF5(const char *file, const T &res)
 	}
 }
 
-
-// it will change the file string
-auto load_ivec(char *file)
-{
-	char *spec_input = std::strchr(file, ':');
-	if(spec_input==nullptr)
-	{
-		fputs("Unrecognized file spec",stderr);
-		return std::make_pair(parlay::sequence<uint32_t*>(),uint32_t(0));
-	}
-	
-	*(spec_input++) = '\0';
-	parlay::sequence<uint32_t*> vec;
-	uint32_t bound1 = 0;
-	if(spec_input[0]=='/')
-	{
-		auto [buffer_ptr,bound] = read_array_from_HDF5<uint32_t>(file, spec_input);
-		bound1 = bound[1];
-		auto *buffer = buffer_ptr.release();
-
-		vec.resize(bound[0]);
-		parlay::parallel_for(0, bound[0], [&](uint32_t i){
-			vec[i] = &buffer[i*bound1];
-		});
-	}
-	else if(std::strcmp(spec_input,"fvec"))
-		std::tie(vec,bound1) = parse_vecs<uint32_t>(file, [](size_t, auto begin, auto end){
-			typedef typename std::iterator_traits<decltype(begin)>::value_type type_elem;
-			if constexpr(std::is_same_v<decltype(begin),ptr_mapped<type_elem,ptr_mapped_src::DISK>>)
-			{
-				const auto *begin_raw=begin.get(), *end_raw=end.get();
-				const auto n = std::distance(begin_raw, end_raw);
-
-				type_elem *id = new type_elem[n];
-				parlay::parallel_for(0, n, [&](size_t i){
-					id[i] = static_cast<type_elem>(*(begin_raw+i));
-				});
-				return id;
-			}
-		});
-	else fputs("Unsupported file spec",stderr);
-
-	return std::make_pair(vec,bound1);
-}
-
 typedef void (*type_func)(HNSW<descr_fvec> &, commandLine, parlay::internal::timer&);
 
-void output_deg(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
+void output_deg(HNSW<descr_fvec> &g, commandLine param, [[maybe_unused]] parlay::internal::timer &t)
 {
 	if(param.getOption("-?"))
 	{
@@ -202,9 +158,9 @@ void output_recall(HNSW<descr_fvec> &g, commandLine param, parlay::internal::tim
 		);
 		return;
 	};
-	char* file_query = param.getOptionValue("-q");
-	char* file_groundtruth = param.getOptionValue("-g");
-	auto [q,_] = load_fvec(file_query);
+	const char* file_query = param.getOptionValue("-q");
+	const char* file_groundtruth = param.getOptionValue("-g");
+	auto [q,_] = load_point(file_query, to_point<float>); (void)_;
 	t.next("Read queryFile");
 
 	uint32_t cnt_rank_cmp = param.getOptionIntValue("-r", 1);
@@ -217,7 +173,7 @@ void output_recall(HNSW<descr_fvec> &g, commandLine param, parlay::internal::tim
 	});
 	t.next("Find neighbors");
 
-	auto [gt,rank_max] = load_ivec(file_groundtruth);
+	auto [gt,rank_max] = load_point(file_groundtruth, gt_converter<uint32_t>{});
 
 	if(rank_max<cnt_rank_cmp)
 		cnt_rank_cmp = rank_max;
@@ -257,7 +213,7 @@ void query(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
 		return;
 	};
 	char* file_query = param.getOptionValue("-q");
-	auto [q,_] = load_fvec(file_query);
+	auto [q,_] = load_point(file_query, to_point<float>); (void)_;
 	t.next("Read queryFile");
 
 	uint32_t cnt_rank_cmp = param.getOptionIntValue("-r", 1);
@@ -299,7 +255,7 @@ void query(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
 	}
 }
 
-void output_neighbor(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
+void output_neighbor(HNSW<descr_fvec> &g, commandLine param, [[maybe_unused]] parlay::internal::timer &t)
 {
 	if(param.getOption("-?"))
 	{
@@ -308,7 +264,7 @@ void output_neighbor(HNSW<descr_fvec> &g, commandLine param, parlay::internal::t
 		return;
 	};
 	char* file_query = param.getOptionValue("-q");
-	auto [q,_] = load_fvec(file_query);
+	auto [q,_] = load_point(file_query, to_point<float>); (void)_;
 
 	puts("Please input <ef_query> <recall> <begin> <end> <stripe> in order");
 	while(true)
@@ -343,7 +299,7 @@ uint32_t cnt_hit(const parlay::sequence<std::tuple<uint32_t,uint32_t,float>> &re
 	return cnt;
 }
 
-void recall_single(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
+void recall_single(HNSW<descr_fvec> &g, commandLine param, [[maybe_unused]] parlay::internal::timer &t)
 {
 	if(param.getOption("-?"))
 	{
@@ -353,8 +309,8 @@ void recall_single(HNSW<descr_fvec> &g, commandLine param, parlay::internal::tim
 	};
 	char* file_query = param.getOptionValue("-q");
 	char* file_groundtruth = param.getOptionValue("-g");
-	auto [q,_] = load_fvec(file_query);
-	auto [gt,rank_max] = load_ivec(file_groundtruth);
+	auto [q,_] = load_point(file_query, to_point<float>); (void)_;
+	auto [gt,rank_max] = load_point(file_groundtruth, gt_converter<uint32_t>{});
 
 	puts("Please input <ef_query> <recall> <query_index> <ep> in order");
 	while(true)
@@ -395,7 +351,7 @@ void recall_single(HNSW<descr_fvec> &g, commandLine param, parlay::internal::tim
 	}
 }
 
-void count_number(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
+void count_number(HNSW<descr_fvec> &g, commandLine param, [[maybe_unused]] parlay::internal::timer &t)
 {
 	if(param.getOption("-?"))
 	{
@@ -411,7 +367,7 @@ void count_number(HNSW<descr_fvec> &g, commandLine param, parlay::internal::time
 		printf("#nodes in lev. %d: %u (%u)\n", i, sum+=cnt[i], cnt[i]);
 }
 
-void symmetrize(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
+void symmetrize(HNSW<descr_fvec> &g, commandLine param, [[maybe_unused]] parlay::internal::timer &t)
 {
 	if(param.getOption("-?"))
 	{
@@ -444,7 +400,7 @@ int main(int argc, char **argv)
 	const char* func = param.getOptionValue("-func");
 
 	parlay::internal::timer t("HNSW", true);
-	auto [ps,_] = load_fvec(file_in);
+	auto [ps,_] = load_point(file_in, to_point<float>); (void)_;
 	t.next("Read inFile");
 
 	fputs("Start building HNSW\n", stderr);
