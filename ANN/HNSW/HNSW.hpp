@@ -514,6 +514,10 @@ HNSW<U,Allocator>::HNSW(const std::string &filename_model, G getter)
 	if(!model.is_open())
 		throw std::runtime_error("Failed to open the model");
 
+	const auto size_buffer = 1024*1024*1024; // 1G
+	auto buffer = std::make_unique<char[]>(size_buffer);
+	model.rdbuf()->pubsetbuf(buffer.get(), size_buffer);
+
 	auto read = [&](auto &data, auto ...args){
 		auto read_impl = [&](auto &f, auto &data, auto ...args){
 			using T = std::remove_reference_t<decltype(data)>;
@@ -1345,6 +1349,10 @@ void HNSW<U,Allocator>::save(const std::string &filename_model) const
 	std::ofstream model(filename_model, std::ios::binary);
 	if(!model.is_open())
 		throw std::runtime_error("Failed to create the model");
+
+	const auto size_buffer = 1024*1024*1024; // 1G
+	auto buffer = std::make_unique<char[]>(size_buffer);
+	model.rdbuf()->pubsetbuf(buffer.get(), size_buffer);
 
 	const auto write = [&](const auto &data, auto ...args){
 		auto write_impl = [&](auto &f, const auto &data, auto ...args){
