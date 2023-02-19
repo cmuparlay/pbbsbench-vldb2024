@@ -29,7 +29,7 @@ public:
 	fake_copyable(T &&c) : content(std::move(c)){}
 
 	fake_copyable(fake_copyable&&) = default;
-	fake_copyable(const fake_copyable &other)
+	fake_copyable(const fake_copyable &other [[maybe_unused]])
 	// The users have to guarantee to hold the points while it is being used in graph.
 	// Otherwise, uncomment the following guarding code and forbid copy constructions
 	// or alternatively pass in copy-constructible objects (e.g., `std::shared_ptr`) 

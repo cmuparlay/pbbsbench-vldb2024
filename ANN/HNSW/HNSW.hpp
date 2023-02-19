@@ -383,7 +383,7 @@ public:
 
 			parlay::parallel_for(0, n, [&](uint32_t i){
 				auto &u = node_pool[i]; // TODO: to fix
-				if(l_c>u.level) return;
+				if((uint32_t)l_c>u.level) return;
 
 				auto &edge_v = edge_add[i];
 				edge_v.clear();

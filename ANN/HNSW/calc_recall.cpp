@@ -115,7 +115,7 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 	};
 	char* file_query = param.getOptionValue("-q");
 	char* file_groundtruth = param.getOptionValue("-g");
-	auto [q,_] = load_point(file_query, to_point<typename U::type_elem>);
+	auto [q,_] = load_point(file_query, to_point<typename U::type_elem>); (void)_;
 	t.next("Read queryFile");
 
 	uint32_t cnt_rank_cmp = param.getOptionIntValue("-r", 1);
