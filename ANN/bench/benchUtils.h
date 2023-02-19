@@ -41,7 +41,7 @@
 using namespace benchIO;
 
 enum class ptr_mapped_src{
-  NATIVE, VOLATILE, PERSISTENT
+  NATIVE, VOLATILE, PERSISTENT, TRANSITIVE
 };
 
 namespace detail{

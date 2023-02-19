@@ -30,8 +30,15 @@ public:
 
 	fake_copyable(fake_copyable&&) = default;
 	fake_copyable(const fake_copyable &other)
+	// The users have to guarantee to hold the points while it is being used in graph.
+	// Otherwise, uncomment the following guarding code and forbid copy constructions
+	// or alternatively pass in copy-constructible objects (e.g., `std::shared_ptr`) 
+	// to `point` instead of using this hack
+	/*
 		: internal_termination(0), 
 		  content(std::move(const_cast<fake_copyable&>(other).content))
+	*/
+		: internal_termination()
 	{
 	}
 };
@@ -53,12 +60,12 @@ struct point
 	{
 	}
 	point(uint32_t id_, const T *coord_)
-		: id(id_), coord(coord_)
+		: id(id_), coord(coord_), closure()
 	{
 	}
 	template<class C>
 	point(uint32_t id_, const T *coord_, C &&closure_)
-		: id(id_), coord(coord_), closure(fake_copyable(std::forward<C>(closure_)))
+		: id(id_), coord(coord_), closure(std::forward<C>(closure_))
 	{
 	}
 private:
@@ -84,6 +91,12 @@ public:
 		if constexpr(std::is_same_v<Iter,ptr_mapped<T,ptr_mapped_src::PERSISTENT>>||
 			std::is_same_v<Iter,ptr_mapped<const T,ptr_mapped_src::PERSISTENT>>)
 			return point<T>(id, &*begin);
+		else if constexpr(std::is_same_v<Iter,ptr_mapped<T,ptr_mapped_src::TRANSITIVE>>||
+			std::is_same_v<Iter,ptr_mapped<const T,ptr_mapped_src::TRANSITIVE>>)
+		{
+			const T *p = &*begin; // TODO: fix the type to T(*)[]
+			return point<T>(id, p, fake_copyable(std::unique_ptr<const T>(p)));
+		}
 		else
 		{
 			const uint32_t dim = std::distance(begin, end);
@@ -92,7 +105,7 @@ public:
 			auto coord = std::make_unique<T[]>(dim);
 			for(uint32_t i=0; i<dim; ++i)
 				coord[i] = *(begin+i);
-			return point<T>(id, coord.get(), std::move(coord));
+			return point<T>(id, coord.get(), fake_copyable(std::move(coord)));
 		}
 	}
 };
@@ -126,6 +139,22 @@ load_from_vec(const char *file, Conv converter, uint32_t max_num)
 	return {std::move(ps), dim};
 }
 
+template<class, class=void>
+class trait_type{
+};
+
+template<class T>
+class trait_type<T,std::void_t<typename T::type>>{
+public:
+	using type = typename T::type;
+};
+
+template<class T>
+class trait_type<T*,void>{
+public:
+	using type = T;
+};
+
 template<class Conv>
 inline std::pair<parlay::sequence<typename Conv::type>,uint32_t>
 load_from_HDF5(const char *file, const char *dir, Conv converter, uint32_t max_num)
@@ -137,16 +166,19 @@ load_from_HDF5(const char *file, const char *dir, Conv converter, uint32_t max_n
 	(void)max_num;
 	throw std::invalid_argument("HDF5 support is not enabled");
 #else
-	auto [buffer,bound] = read_array_from_HDF5<typename Conv::type>(file, dir);
-	const auto dim = bound[1];
+	using T = typename trait_type<typename Conv::type>::type;
+	auto [reader,bound] = get_reader<T>(file, dir);
+	const size_t n = std::min<size_t>(bound[0], max_num);
+	const uint32_t dim = bound[1];
 
-	size_t n = std::min(bound[0], max_num);
 	parlay::sequence<typename Conv::type> ps(n);
-	parlay::parallel_for(0, n, [&](uint32_t i){
-		// TODO: may cause temporary memory usage as twice as the size of `buffer`
-		// May be solved by designing an iterator that reads data from HDF5 gradually
-		ps[i] = converter(i, &buffer[i*dim], &buffer[(i+1)*dim]);
-	});
+	// TODO: parallel for-loop
+	for(uint32_t i=0; i<n; ++i){
+		T *coord = new T[dim];
+		reader(coord, i);
+		typedef ptr_mapped<T,ptr_mapped_src::TRANSITIVE> type_ptr;
+		ps[i] = converter(i, type_ptr(coord), type_ptr(coord+dim));
+	}
 	return {std::move(ps), dim};
 #endif
 }
