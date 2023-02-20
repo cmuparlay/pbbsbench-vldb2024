@@ -32,6 +32,19 @@ public:
 	}
 };
 
+// Visit all the vectors in the given 2D array of points
+// This triggers the page fetching if the vectors are mmap-ed
+template<class T>
+void visit_point(const T &array, size_t dim0, size_t dim1)
+{
+	parlay::parallel_for(0, dim0, [&](size_t i){
+		const auto &a = array[i];
+		[[maybe_unused]] volatile auto elem = a.coord[0];
+		for(size_t j=1; j<dim1; ++j)
+			elem = a.coord[j];
+	});
+}
+
 template<class U>
 void output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t recall, 
 	uint32_t cnt_query, parlay::sequence<typename U::type_point> &q, parlay::sequence<uint32_t*> &gt, uint32_t rank_max)
@@ -116,11 +129,15 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 	auto [q,_] = load_point(file_query, to_point<typename U::type_elem>); (void)_;
 	t.next("Read queryFile");
 
+	visit_point(q, q.size(), g.dim);
+	t.next("Fetch query vectors");
+
 	uint32_t cnt_rank_cmp = param.getOptionIntValue("-r", 1);
 //	const uint32_t ef = param.getOptionIntValue("-ef", cnt_rank_cmp*50);
 	const uint32_t cnt_pts_query = param.getOptionIntValue("-k", q.size());
 
 	auto [gt,rank_max] = load_point(file_groundtruth, gt_converter<uint32_t>{});
+	t.next("Read groundTruthFile");
 	for(uint32_t scale=1; scale<60; scale+=2)
 		output_recall(g, t, scale*cnt_rank_cmp, cnt_rank_cmp, cnt_pts_query, q, gt, rank_max);
 }
@@ -144,6 +161,9 @@ void run_test(commandLine parameter) // intend to be pass-by-value manner
 	using T = typename U::type_elem;
 	auto [ps,dim] = load_point(file_in, to_point<T>, cnt_points);
 	t.next("Read inFile");
+
+	visit_point(ps, ps.size(), dim);
+	t.next("Fetch input vectors");
 
 	fputs("Start building HNSW\n", stderr);
 	HNSW<U> g(
