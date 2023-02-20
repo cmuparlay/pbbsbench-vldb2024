@@ -20,6 +20,9 @@ endif
 
 CXXFLAGS_IGNORE_SYMBOL = -Wl,--unresolved-symbols=ignore-all
 
+.PHONY: all
+
+all: calc_recall gen_model eval_graph
 
 gen_model: gen_model.cpp HNSW.hpp
 	$(CXX) $< $(CXXFLAGS_BASIC) $(CXXFLAGS_HDF5) $(CXXFLAGS_JEMALLOC) $(CXXFLAGS_IGNORE_SYMBOL) -o $@

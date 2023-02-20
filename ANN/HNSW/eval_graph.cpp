@@ -196,9 +196,9 @@ void output_recall(HNSW<descr_fvec> &g, commandLine param, parlay::internal::tim
 		putchar('\n');
 	}
 	printf("#all shot: %u (%.2f)\n", cnt_all_shot, float(cnt_all_shot)/cnt_pts_query);
-	printf("# visited: %lu\n", g.total_visited.load());
-	printf("# eval: %lu\n", g.total_eval.load());
-	printf("size of C: %lu\n", g.total_size_C.load());
+	printf("# visited: %lu\n", parlay::reduce(g.total_visited,parlay::addm<size_t>{}));
+	printf("# eval: %lu\n", parlay::reduce(g.total_eval,parlay::addm<size_t>{}));
+	printf("size of C: %lu\n", parlay::reduce(g.total_size_C,parlay::addm<size_t>{}));
 }
 
 void query(HNSW<descr_fvec> &g, commandLine param, parlay::internal::timer &t)
@@ -417,11 +417,15 @@ int main(int argc, char **argv)
 	list_func["query"] = query;
 	list_func["symm"] = symmetrize;
 	list_func["single"] = recall_single;
+
 	auto it_func = list_func.find(func);
-	if(it_func!=list_func.end())
-		it_func->second(g, param, t);
-	else
+	if(it_func==list_func.end())
+	{
 		fprintf(stderr, "Cannot find function '%s'\n", func);
+		return 1;
+	}
+
+	it_func->second(g, param, t);
 
 	return 0;
 }
