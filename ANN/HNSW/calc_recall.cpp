@@ -124,8 +124,8 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 		);
 		return;
 	};
-	char* file_query = param.getOptionValue("-q");
-	char* file_groundtruth = param.getOptionValue("-g");
+	const char* file_query = param.getOptionValue("-q");
+	const char* file_groundtruth = param.getOptionValue("-g");
 	auto [q,_] = load_point(file_query, to_point<typename U::type_elem>);
 	t.next("Read queryFile");
 	printf("%s: [%lu,%u]\n", file_query, q.size(), _);
@@ -175,9 +175,17 @@ void run_test(commandLine parameter) // intend to be pass-by-value manner
 	);
 	t.next("Build index");
 
-	size_t cnt_degree = g.cnt_degree();
-	printf("total degree: %lu\n", cnt_degree);
-	t.next("Count degrees");
+	const uint32_t height = g.get_height();
+	printf("Highest level: %u\n", height);
+	puts("level     #vertices         #degrees");
+	for(uint32_t i=0; i<=height; ++i)
+	{
+		const uint32_t level = height-i;
+		size_t cnt_vertex = g.cnt_vertex(level);
+		size_t cnt_degree = g.cnt_degree(level);
+		printf("#%2u: %14lu %16lu\n", level, cnt_vertex, cnt_degree);
+	}
+	t.next("Count vertices and degrees");
 
 	if(file_out)
 	{

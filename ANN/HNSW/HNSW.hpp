@@ -464,13 +464,26 @@ public:
 		return res;
 	}
 
-	size_t cnt_degree()
+	uint32_t get_height() const
 	{
-		parlay::sequence<size_t> cnt_each(n);
-		parlay::parallel_for(0, n, [&](size_t i){
+		return get_node(entrance[0]).level;
+	}
+
+	size_t cnt_degree(uint32_t l) const
+	{
+		auto cnt_each = parlay::delayed_seq<size_t>(n, [&](size_t i){
 			node_id pu = i;
-			for(uint32_t l=0; l<=get_node(pu).level; ++l)
-				cnt_each[i] += neighbourhood(get_node(pu),l).size();
+			return get_node(pu).level<l? 0:
+				neighbourhood(get_node(pu),l).size();
+		});
+		return parlay::reduce(cnt_each, parlay::addm<size_t>());
+	}
+
+	size_t cnt_vertex(uint32_t l) const
+	{
+		auto cnt_each = parlay::delayed_seq<size_t>(n, [&](size_t i){
+			node_id pu = i;
+			return get_node(pu).level<l? 0: 1;
 		});
 		return parlay::reduce(cnt_each, parlay::addm<size_t>());
 	}
