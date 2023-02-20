@@ -7,6 +7,7 @@
 #include <cassert>
 #include <cmath>
 #include <algorithm>
+#include <numeric>
 #include <random>
 #include <memory>
 #include <atomic>
@@ -127,9 +128,9 @@ public:
 	uint32_t n;
 	Allocator<node> allocator;
 	parlay::sequence<node> node_pool;
-	mutable std::atomic<size_t> total_visited = 0;
-	mutable std::atomic<size_t> total_eval = 0;
-	mutable std::atomic<size_t> total_size_C = 0;
+	mutable parlay::sequence<size_t> total_visited = parlay::sequence<size_t>(parlay::num_workers());
+	mutable parlay::sequence<size_t> total_eval = parlay::sequence<size_t>(parlay::num_workers());
+	mutable parlay::sequence<size_t> total_size_C = parlay::sequence<size_t>(parlay::num_workers());
 
 	static auto neighbourhood(const node &u, uint32_t level)
 		-> parlay::sequence<node_id>&
@@ -664,15 +665,15 @@ HNSW<U,Allocator>::HNSW(Iter begin, Iter end, uint32_t dim_, float m_l_, uint32_
 		{
 			progress = float(batch_end)/n;
 			fprintf(stderr, "Built: %3.2f%%\n", progress*100);
-			fprintf(stderr, "# visited: %lu\n", total_visited.load());
-			fprintf(stderr, "# eval: %lu\n", total_eval.load());
-			fprintf(stderr, "size of C: %lu\n", total_size_C.load());
+			fprintf(stderr, "# visited: %lu\n", parlay::reduce(total_visited,parlay::addm<size_t>{}));
+			fprintf(stderr, "# eval: %lu\n", parlay::reduce(total_eval,parlay::addm<size_t>{}));
+			fprintf(stderr, "size of C: %lu\n", parlay::reduce(total_size_C,parlay::addm<size_t>{}));
 		}
 	}
 
-	fprintf(stderr, "# visited: %lu\n", total_visited.load());
-	fprintf(stderr, "# eval: %lu\n", total_eval.load());
-	fprintf(stderr, "size of C: %lu\n", total_size_C.load());
+	fprintf(stderr, "# visited: %lu\n", parlay::reduce(total_visited,parlay::addm<size_t>{}));
+	fprintf(stderr, "# eval: %lu\n", parlay::reduce(total_eval,parlay::addm<size_t>{}));
+	fprintf(stderr, "size of C: %lu\n", parlay::reduce(total_size_C,parlay::addm<size_t>{}));
 	if(do_fixing) fix_edge();
 
 	#if 0
@@ -996,9 +997,10 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const parlay::sequence<no
 	{
 		//total_visited += visited.size();
 		//total_visited += visited.size()-std::count(visited.begin(),visited.end(),n+1);
-		total_visited += visited.size();
-		total_size_C += C.size()+cnt_eval;
-		total_eval += cnt_eval;
+		const auto id = parlay::worker_id();
+		total_visited[id] += visited.size();
+		total_size_C[id] += C.size()+cnt_eval;
+		total_eval[id] += cnt_eval;
 	}
 	return W;
 }
@@ -1141,9 +1143,10 @@ auto HNSW<U,Allocator>::search_layer_new_ex(const node &u, const parlay::sequenc
 	}
 	if(l_c==0)
 	{
-		total_visited += visited.size();
-		total_size_C += C.size()+cnt_eval;
-		total_eval += cnt_eval;
+		const auto id = parlay::worker_id();
+		total_visited[id] += visited.size();
+		total_size_C[id] += C.size()+cnt_eval;
+		total_eval[id] += cnt_eval;
 	}
 	/*
 	std::sort(W.begin(), W.end(), farthest());
@@ -1276,7 +1279,7 @@ auto HNSW<U,Allocator>::beam_search_ex(const node &u, const parlay::sequence<nod
 		not_done = uf_iter > unvisited_frontier.begin();
 
 		if(l_c==0)
-			total_visited += candidates.size();
+			total_visited[parlay::worker_id()] += candidates.size();
 	}
 	parlay::sequence<dist_ex> W;
 	W.insert(W.end(), visited);

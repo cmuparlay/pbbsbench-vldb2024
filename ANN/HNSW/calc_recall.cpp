@@ -49,9 +49,9 @@ template<class U>
 void output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t recall, 
 	uint32_t cnt_query, parlay::sequence<typename U::type_point> &q, parlay::sequence<uint32_t*> &gt, uint32_t rank_max)
 {
-	g.total_visited = 0;
-	g.total_eval = 0;
-	g.total_size_C = 0;
+	g.total_visited.assign(parlay::num_workers(), 0);
+	g.total_eval.assign(parlay::num_workers(), 0);
+	g.total_size_C.assign(parlay::num_workers(), 0);
 	//std::vector<std::vector<std::pair<uint32_t,float>>> res(cnt_query);
 	parlay::sequence<parlay::sequence<std::pair<uint32_t,float>>> res(cnt_query);
 	parlay::parallel_for(0, cnt_query, [&](size_t i){
@@ -106,9 +106,9 @@ void output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t
 	}
 	putchar('\n');
 	printf("%.6f at %ekqps\n", float(cnt_shot)/cnt_query/recall, cnt_query/time_query/1000);
-	printf("# visited: %lu\n", g.total_visited.load());
-	printf("# eval: %lu\n", g.total_eval.load());
-	printf("size of C: %lu\n", g.total_size_C.load());
+	printf("# visited: %lu\n", parlay::reduce(g.total_visited,parlay::addm<size_t>{}));
+	printf("# eval: %lu\n", parlay::reduce(g.total_eval,parlay::addm<size_t>{}));
+	printf("size of C: %lu\n", parlay::reduce(g.total_size_C,parlay::addm<size_t>{}));
 	puts("---");
 }
 
