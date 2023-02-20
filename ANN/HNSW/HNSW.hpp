@@ -645,12 +645,12 @@ HNSW<U,Allocator>::HNSW(Iter begin, Iter end, uint32_t dim_, float m_l_, uint32_
 	new(&get_node(entrance_init)) node{level_ep, new parlay::sequence<node_id>[level_ep+1], *rand_seq.begin()/*anything else*/};
 	entrance.push_back(entrance_init);
 
-	uint32_t batch_begin=0, batch_end=1;
+	uint32_t batch_begin=0, batch_end=1, size_limit=n*0.02;
 	float progress = 0.0;
 	while(batch_end<n)
 	{
 		batch_begin = batch_end;
-		batch_end = std::min({n, (uint32_t)std::ceil(batch_begin*batch_base)+1, batch_begin+20000});
+		batch_end = std::min({n, (uint32_t)std::ceil(batch_begin*batch_base)+1, batch_begin+size_limit});
 		/*
 		if(batch_end>batch_begin+100)
 			batch_end = batch_begin+100;
@@ -660,10 +660,10 @@ HNSW<U,Allocator>::HNSW(Iter begin, Iter end, uint32_t dim_, float m_l_, uint32_
 		insert(rand_seq.begin()+batch_begin, rand_seq.begin()+batch_end, true);
 		// insert(rand_seq.begin()+batch_begin, rand_seq.begin()+batch_end, false);
 
-		if(batch_end>n*(progress+0.1))
+		if(batch_end>n*(progress+0.05))
 		{
 			progress = float(batch_end)/n;
-			fprintf(stderr, "Done: %.2f\n", progress);
+			fprintf(stderr, "Built: %3.2f%%\n", progress*100);
 			fprintf(stderr, "# visited: %lu\n", total_visited.load());
 			fprintf(stderr, "# eval: %lu\n", total_eval.load());
 			fprintf(stderr, "size of C: %lu\n", total_size_C.load());

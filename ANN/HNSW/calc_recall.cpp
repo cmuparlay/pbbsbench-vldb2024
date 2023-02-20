@@ -126,8 +126,9 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 	};
 	char* file_query = param.getOptionValue("-q");
 	char* file_groundtruth = param.getOptionValue("-g");
-	auto [q,_] = load_point(file_query, to_point<typename U::type_elem>); (void)_;
+	auto [q,_] = load_point(file_query, to_point<typename U::type_elem>);
 	t.next("Read queryFile");
+	printf("%s: [%lu,%u]\n", file_query, q.size(), _);
 
 	visit_point(q, q.size(), g.dim);
 	t.next("Fetch query vectors");
@@ -138,6 +139,7 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 
 	auto [gt,rank_max] = load_point(file_groundtruth, gt_converter<uint32_t>{});
 	t.next("Read groundTruthFile");
+	printf("%s: [%lu,%u]\n", file_groundtruth, gt.size(), rank_max);
 	for(uint32_t scale=1; scale<60; scale+=2)
 		output_recall(g, t, scale*cnt_rank_cmp, cnt_rank_cmp, cnt_pts_query, q, gt, rank_max);
 }
@@ -161,6 +163,7 @@ void run_test(commandLine parameter) // intend to be pass-by-value manner
 	using T = typename U::type_elem;
 	auto [ps,dim] = load_point(file_in, to_point<T>, cnt_points);
 	t.next("Read inFile");
+	printf("%s: [%lu,%u]\n", file_in, ps.size(), dim);
 
 	visit_point(ps, ps.size(), dim);
 	t.next("Fetch input vectors");
