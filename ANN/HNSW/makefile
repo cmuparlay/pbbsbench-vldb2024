@@ -15,7 +15,7 @@ endif
 CXXFLAGS_JEMALLOC =
 ifneq (, $(shell which jemalloc-config))
 	LIBDIR_JEMALLOC := $(shell jemalloc-config --libdir)
-	CXXFLAGS_JEMALLOC := -L$(LIBDIR_JEMALLOC) -ljemalloc -Wl,rpath=$(LIBDIR_JEMALLOC)
+	CXXFLAGS_JEMALLOC := -L$(LIBDIR_JEMALLOC) -ljemalloc -Wl,-rpath=$(LIBDIR_JEMALLOC)
 endif
 
 CXXFLAGS_IGNORE_SYMBOL = -Wl,--unresolved-symbols=ignore-all

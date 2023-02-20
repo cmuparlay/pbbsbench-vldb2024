@@ -253,6 +253,8 @@ inline auto load_point(const char *input_name, Conv converter, size_t max_num=0)
 		return load_from_bin<int8_t>(file, converter, max_num);
 	if(!strcmp(input_spec,"ibin"))
 		return load_from_bin<int32_t>(file, converter, max_num);
+	if(!strcmp(input_spec,"ubin"))
+		return load_from_bin<uint32_t>(file, converter, max_num);
 	if(!strcmp(input_spec,"fbin"))
 		return load_from_bin<float>(file, converter, max_num);
 
