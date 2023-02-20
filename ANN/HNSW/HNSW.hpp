@@ -1320,15 +1320,16 @@ parlay::sequence<std::tuple<uint32_t,uint32_t,float>> HNSW<U,Allocator>::search_
 	// auto W_ex = search_layer_new_ex(u, eps, ef, 0, ctrl);
 	// auto W_ex = beam_search_ex(u, eps, ef, 0);
 	// auto R = select_neighbors_simple(q, W_ex, k);
-	
+
 	auto &R = W_ex;
+	std::sort(R.begin(), R.end(), farthest());
 	if(R.size()>k)
 	{
-		std::nth_element(R.begin(), R.begin()+k, R.end(), farthest());
+		if(k>0)
+			k = std::upper_bound(R.begin()+k, R.end(), R[k-1], farthest())-R.begin();
 		R.resize(k);
 	}
-	
-	std::sort(R.begin(), R.end(), farthest());
+
 	parlay::sequence<std::tuple<uint32_t,uint32_t,float>> res;
 	res.reserve(R.size());
 	/*
