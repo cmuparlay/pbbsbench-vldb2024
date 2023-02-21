@@ -3,110 +3,64 @@
 #include <cstdint>
 #include <algorithm>
 #include <string>
+#include <sstream>
+#include <vector>
 #include <map>
 #include <chrono>
-// #include <memory>
-//#include <H5Cpp.h>
+#include <stdexcept>
 #include "HNSW.hpp"
-//#include "dist_ang.hpp"
-#include "dist_l2.hpp"
+#include "dist.hpp"
 using ANN::HNSW;
 
-// it will change the file string
-/*
-auto load_fvec(char *file)
-{
-	char *spec_input = std::strchr(file, ':');
-	if(spec_input==nullptr)
-	{
-		fputs("Unrecognized file spec",stderr);
-		return std::make_pair(parlay::sequence<fvec>(),uint32_t(0));
-	}
-	
-	*(spec_input++) = '\0';
-	parlay::sequence<fvec> ps;
-	uint32_t dim = 0;
-	if(spec_input[0]=='/')
-		std::tie(ps,dim) = ps_from_HDF5(file, spec_input);
-	else if(!std::strcmp(spec_input,"fvec"))
-		std::tie(ps,dim) = ps_from_SIFT(file);
-	else fputs("Unsupported file spec",stderr);
+parlay::sequence<size_t> per_visited;
+parlay::sequence<size_t> per_eval;
+parlay::sequence<size_t> per_size_C;
 
-	return std::make_pair(ps,dim);
-}
-*/
-auto load_bvec(char *file, size_t max_num=0)
-{
-	char *spec_input = std::strchr(file, ':');
-	if(spec_input==nullptr)
-	{
-		fputs("Unrecognized file spec",stderr);
-		return std::make_pair(parlay::sequence<bvec>(),uint32_t(0));
-	}
-	
-	*(spec_input++) = '\0';
-	parlay::sequence<bvec> ps;
-	uint32_t dim = 0;
-	if(spec_input[0]=='/')
-		std::tie(ps,dim) = ps_from_HDF5(file, spec_input);
-	else if(!std::strcmp(spec_input,"bvec"))
-		std::tie(ps,dim) = ps_from_SIFT(file, max_num);
-	else fputs("Unsupported file spec",stderr);
+template<typename T>
+point_converter_default<T> to_point;
 
-	return std::make_pair(std::move(ps),dim);
+template<typename T>
+class gt_converter{
+public:
+	using type = T*;
+	template<typename Iter>
+	type operator()([[maybe_unused]] uint32_t id, Iter begin, Iter end)
+	{
+		using type_src = typename std::iterator_traits<Iter>::value_type;
+		static_assert(std::is_convertible_v<type_src,T>, "Cannot convert to the target type");
+
+		const uint32_t n = std::distance(begin, end);
+
+		T *gt = new T[n];
+		for(uint32_t i=0; i<n; ++i)
+			gt[i] = *(begin+i);
+		return gt;
+	}
+};
+
+// Visit all the vectors in the given 2D array of points
+// This triggers the page fetching if the vectors are mmap-ed
+template<class T>
+void visit_point(const T &array, size_t dim0, size_t dim1)
+{
+	parlay::parallel_for(0, dim0, [&](size_t i){
+		const auto &a = array[i];
+		[[maybe_unused]] volatile auto elem = a.coord[0];
+		for(size_t j=1; j<dim1; ++j)
+			elem = a.coord[j];
+	});
 }
 
-// it will change the file string
-auto load_ivec(char *file)
+template<class U>
+size_t output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t recall, 
+	uint32_t cnt_query, parlay::sequence<typename U::type_point> &q, parlay::sequence<uint32_t*> &gt, uint32_t rank_max, float beta)
 {
-	char *spec_input = std::strchr(file, ':');
-	if(spec_input==nullptr)
-	{
-		fputs("Unrecognized file spec",stderr);
-		return std::make_pair(parlay::sequence<uint32_t*>(),uint32_t(0));
-	}
-	
-	*(spec_input++) = '\0';
-	parlay::sequence<uint32_t*> vec;
-	uint32_t bound1 = 0;
-	if(spec_input[0]=='/')
-	{
-		/*
-		auto [buffer_ptr,bound] = read_array_from_HDF5<uint32_t>(file, spec_input);
-		bound1 = bound[1];
-		auto *buffer = buffer_ptr.release();
-
-		vec.resize(bound[0]);
-		parlay::parallel_for(0, bound[0], [&](uint32_t i){
-			vec[i] = &buffer[i*bound1];
-		});
-		*/
-	}
-	else if(!std::strcmp(spec_input,"ivec"))
-		std::tie(vec,bound1) = parse_vecs<uint32_t>(file, [](size_t, auto begin, auto end){
-			typedef typename std::iterator_traits<decltype(begin)>::value_type type_elem;
-			if constexpr(std::is_same_v<decltype(begin),ptr_mapped<type_elem,ptr_mapped_src::DISK>>)
-			{
-				const auto *begin_raw=begin.get(), *end_raw=end.get();
-				const auto n = std::distance(begin_raw, end_raw);
-
-				type_elem *id = new type_elem[n];
-				parlay::parallel_for(0, n, [&](size_t i){
-					id[i] = static_cast<type_elem>(*(begin_raw+i));
-				});
-				return id;
-			}
-		});
-	else fputs("Unsupported file spec",stderr);
-
-	return std::make_pair(vec,bound1);
-}
-
-void output_recall(HNSW<descr_bvec> &g, parlay::internal::timer &t, uint32_t ef, uint32_t recall, uint32_t cnt_query, parlay::sequence<bvec> &q, parlay::sequence<uint32_t*> &gt, uint32_t rank_max)
-{
-	g.total_visited = 0;
-	g.total_eval = 0;
-	g.total_size_C = 0;
+	g.total_visited.assign(parlay::num_workers(), 0);
+	g.total_eval.assign(parlay::num_workers(), 0);
+	g.total_size_C.assign(parlay::num_workers(), 0);
+	per_visited.resize(cnt_query);
+	per_eval.resize(cnt_query);
+	per_size_C.resize(cnt_query);
 	//std::vector<std::vector<std::pair<uint32_t,float>>> res(cnt_query);
 	parlay::sequence<parlay::sequence<std::pair<uint32_t,float>>> res(cnt_query);
 	parlay::parallel_for(0, cnt_query, [&](size_t i){
@@ -115,7 +69,10 @@ void output_recall(HNSW<descr_bvec> &g, parlay::internal::timer &t, uint32_t ef,
 	t.next("Doing search");
 	//auto t1 = std::chrono::high_resolution_clock::now();
 	parlay::parallel_for(0, cnt_query, [&](size_t i){
-		res[i] = g.search(q[i], recall, ef, flag_query);
+		search_control ctrl{};
+		ctrl.log_per_stat = i;
+		ctrl.beta = beta;
+		res[i] = g.search(q[i], recall, ef, ctrl);
 	});
 	//auto t2 = std::chrono::high_resolution_clock::now();
 	double time_query = t.next_time();
@@ -130,7 +87,7 @@ void output_recall(HNSW<descr_bvec> &g, parlay::internal::timer &t, uint32_t ef,
 		recall = rank_max;
 //	uint32_t cnt_all_shot = 0;
 	std::vector<uint32_t> result(recall+1);
-	printf("measure recall@%u with ef=%u on %u queries\n", recall, ef, cnt_query);
+	printf("measure recall@%u with ef=%u beta=%.4f on %u queries\n", recall, ef, beta, cnt_query);
 	for(uint32_t i=0; i<cnt_query; ++i)
 	{
 		uint32_t cnt_shot = 0;
@@ -140,54 +97,198 @@ void output_recall(HNSW<descr_bvec> &g, parlay::internal::timer &t, uint32_t ef,
 			{
 				cnt_shot++;
 			}
-		/*
-		printf("#%u:\t%u (%.2f)[%lu]", i, cnt_shot, float(cnt_shot)/recall, res[i].size());
-		if(cnt_shot==recall)
-		{
-			cnt_all_shot++;
-		}
-		putchar('\n');
-		*/
 		result[cnt_shot]++;
 	}
-	// printf("#all shot: %u (%.2f)\n", cnt_all_shot, float(cnt_all_shot)/cnt_query);
-	uint32_t cnt_shot = 0;
-	for(uint32_t i=0; i<=recall; ++i)
+
+	size_t total_shot = 0;
+	for(size_t i=0; i<=recall; ++i)
 	{
 		printf("%u ", result[i]);
-		cnt_shot += result[i]*i;
+		total_shot += result[i]*i;
 	}
 	putchar('\n');
-	printf("%.6f at %ekqps\n", float(cnt_shot)/cnt_query/recall, cnt_query/time_query/1000);
-	printf("# visited: %lu\n", g.total_visited.load());
-	printf("# eval: %lu\n", g.total_eval.load());
-	printf("size of C: %lu\n", g.total_size_C.load());
+	printf("%.6f at %ekqps\n", float(total_shot)/cnt_query/recall, cnt_query/time_query/1000);
+	printf("# visited: %lu\n", parlay::reduce(g.total_visited,parlay::addm<size_t>{}));
+	printf("# eval: %lu\n", parlay::reduce(g.total_eval,parlay::addm<size_t>{}));
+	printf("size of C: %lu\n", parlay::reduce(g.total_size_C,parlay::addm<size_t>{}));
+
+	parlay::sort_inplace(per_visited);
+	parlay::sort_inplace(per_eval);
+	parlay::sort_inplace(per_size_C);
+	const double tail_ratio[] = {0.9, 0.99, 0.999};
+	for(size_t i=0; i<sizeof(tail_ratio)/sizeof(*tail_ratio); ++i)
+	{
+		const auto r = tail_ratio[i];
+		const uint32_t tail_index = r*cnt_query;
+		printf("%.4f tail stat (at %u):\n", r, tail_index);
+
+		printf("\t# visited: %lu\n", per_visited[tail_index]);
+		printf("\t# eval: %lu\n", per_eval[tail_index]);
+		printf("\tsize of C: %lu\n", per_size_C[tail_index]);
+	}
 	puts("---");
+	return total_shot;
 }
 
-void output_recall(HNSW<descr_bvec> &g, commandLine param, parlay::internal::timer &t)
+template<class U>
+void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 {
 	if(param.getOption("-?"))
 	{
 		printf(__func__);
 		puts(
-			"[-q <queryFile>] [-g <groundtruthFile>]"
-			"-ef <ef_query> [-r <recall@R>=1] [-k <numQuery>=all]"
+			"-q <queryFile> -g <groundtruthFile> [-k <numQuery>=all]"
+			"-ef <ef_query>,... -r <recall@R>,... -th <threshold>,... -beta <beta>,..."
 		);
 		return;
 	};
-	char* file_query = param.getOptionValue("-q");
-	char* file_groundtruth = param.getOptionValue("-g");
-	auto [q,_] = load_bvec(file_query);
+	const char* file_query = param.getOptionValue("-q");
+	const char* file_groundtruth = param.getOptionValue("-g");
+	auto [q,_] = load_point(file_query, to_point<typename U::type_elem>);
 	t.next("Read queryFile");
+	printf("%s: [%lu,%u]\n", file_query, q.size(), _);
 
-	uint32_t cnt_rank_cmp = param.getOptionIntValue("-r", 1);
-//	const uint32_t ef = param.getOptionIntValue("-ef", cnt_rank_cmp*50);
-	const uint32_t cnt_pts_query = param.getOptionIntValue("-k", q.size());
+	visit_point(q, q.size(), g.dim);
+	t.next("Fetch query vectors");
 
-	auto [gt,rank_max] = load_ivec(file_groundtruth);
+	auto [gt,rank_max] = load_point(file_groundtruth, gt_converter<uint32_t>{});
+	t.next("Read groundTruthFile");
+	printf("%s: [%lu,%u]\n", file_groundtruth, gt.size(), rank_max);
+
+	auto parse_array = [](const std::string &s, auto f){
+		std::stringstream ss;
+		ss << s;
+		std::string current;
+		std::vector<decltype(f((char*)NULL))> res;
+		while(std::getline(ss, current, ','))
+			res.push_back(f(current.c_str()));
+		std::sort(res.begin(), res.end());
+		return res;
+	};
+	auto beta = parse_array(param.getOptionValue("-beta"), atof);
+	auto cnt_rank_cmp = parse_array(param.getOptionValue("-r"), atoi);
+	auto ef = parse_array(param.getOptionValue("-ef"), atoi);
+	auto threshold = parse_array(param.getOptionValue("-th"), atof);
+	const uint32_t cnt_query = param.getOptionIntValue("-k", q.size());
+
+	auto get_best = [&](uint32_t k, uint32_t ef){
+		size_t best_shot = 0;
+		// float best_beta = beta[0];
+		for(auto b : beta)
+		{
+			const auto total_shot = 
+				output_recall(g, t, ef, k, cnt_query, q, gt, rank_max, b);
+			if(total_shot>best_shot)
+			{
+				best_shot = total_shot;
+				// best_beta = b;
+			}
+		}
+		// return std::make_pair(best_shot, best_beta);
+		return best_shot;
+	};
+	puts("pattern: (k,ef_max,beta)");
+	const auto ef_max = *ef.rbegin();
+	for(auto k : cnt_rank_cmp)
+		get_best(k, ef_max);
+
+	puts("pattern: (k_min,ef,beta)");
+	const auto k_min = *cnt_rank_cmp.begin();
+	for(auto efq : ef)
+		get_best(k_min, efq);
+
+	puts("pattern: (k,threshold)");
+	for(auto k : cnt_rank_cmp)
+	{
+		uint32_t l_last = k;
+		for(auto t : threshold)
+		{
+			printf("searching for k=%u, th=%f\n", k, t);
+			const size_t target = t*cnt_query*k;
+			uint32_t l=l_last, r_limit=std::max(k*100, ef_max);
+			uint32_t r = l;
+			bool found = false;
+			while(true)
+			{
+				// auto [best_shot, best_beta] = get_best(k, r);
+				if(get_best(k,r)>=target)
+				{
+					found = true;
+					break;
+				}
+				if(r==r_limit) break;
+				r = std::min(r*2, r_limit);
+			}
+			if(!found) break;
+			while(r-l>5)
+			{
+				const auto mid = (l+r)/2;
+				const auto best_shot = get_best(k,mid);
+				if(best_shot>=target)
+					r = mid;
+				else
+					l = mid;
+			}
+			l_last = l;
+		}
+	}
+
+	/*
 	for(uint32_t scale=1; scale<60; scale+=2)
 		output_recall(g, t, scale*cnt_rank_cmp, cnt_rank_cmp, cnt_pts_query, q, gt, rank_max);
+	*/
+}
+
+template<typename U>
+void run_test(commandLine parameter) // intend to be pass-by-value manner
+{
+	const char *file_in = parameter.getOptionValue("-in");
+	const uint32_t cnt_points = parameter.getOptionLongValue("-n", 0);
+	const float m_l = parameter.getOptionDoubleValue("-ml", 0.36);
+	const uint32_t m = parameter.getOptionIntValue("-m", 40);
+	const uint32_t efc = parameter.getOptionIntValue("-efc", 60);
+	const float alpha = parameter.getOptionDoubleValue("-alpha", 1);
+	const float batch_base = parameter.getOptionDoubleValue("-b", 2);
+	const bool do_fixing = !!parameter.getOptionIntValue("-f", 0);
+	const char *file_out = parameter.getOptionValue("-out");
+	
+	parlay::internal::timer t("HNSW", true);
+
+	using T = typename U::type_elem;
+	auto [ps,dim] = load_point(file_in, to_point<T>, cnt_points);
+	t.next("Read inFile");
+	printf("%s: [%lu,%u]\n", file_in, ps.size(), dim);
+
+	visit_point(ps, ps.size(), dim);
+	t.next("Fetch input vectors");
+
+	fputs("Start building HNSW\n", stderr);
+	HNSW<U> g(
+		ps.begin(), ps.begin()+ps.size(), dim,
+		m_l, m, efc, alpha, batch_base, do_fixing
+	);
+	t.next("Build index");
+
+	const uint32_t height = g.get_height();
+	printf("Highest level: %u\n", height);
+	puts("level     #vertices         #degrees  max_degree");
+	for(uint32_t i=0; i<=height; ++i)
+	{
+		const uint32_t level = height-i;
+		size_t cnt_vertex = g.cnt_vertex(level);
+		size_t cnt_degree = g.cnt_degree(level);
+		size_t degree_max = g.get_degree_max(level);
+		printf("#%2u: %14lu %16lu %11lu\n", level, cnt_vertex, cnt_degree, degree_max);
+	}
+	t.next("Count vertices and degrees");
+
+	if(file_out)
+	{
+		g.save(file_out);
+		t.next("Write to the file");
+	}
+
+	output_recall(g, parameter, t);
 }
 
 int main(int argc, char **argv)
@@ -197,44 +298,28 @@ int main(int argc, char **argv)
 	putchar('\n');
 
 	commandLine parameter(argc, argv, 
-		"-n <numInput> -ml <m_l> -m <m> "
+		"-type <elemType> -dist <distance> -n <numInput> -ml <m_l> -m <m> "
 		"-efc <ef_construction> -alpha <alpha> -r <recall@R> [-b <batchBase>]"
-		"-in <inFile> ..."
+		"-in <inFile> -out <outFile>"
 	);
-	char* file_in = parameter.getOptionValue("-in");
-	const uint32_t cnt_points = parameter.getOptionLongValue("-n", 0);
-	const float m_l = parameter.getOptionDoubleValue("-ml", 0.36);
-	const uint32_t m = parameter.getOptionIntValue("-m", 40);
-	const uint32_t efc = parameter.getOptionIntValue("-efc", 60);
-	const float alpha = parameter.getOptionDoubleValue("-alpha", 1);
-	const float batch_base = parameter.getOptionDoubleValue("-b", 2);
-	const bool do_fixing = !!parameter.getOptionIntValue("-f", 0);
-	flag_query = parameter.getOptionIntValue("-flag", 0);
 
-	if(file_in==nullptr)
-		return fputs("in file is not indicated\n",stderr), 1;
-	
-	char *spec_input = std::strchr(file_in, ':');
-	if(spec_input==nullptr)
-		return fputs("Unrecognized file spec",stderr), 2;
-	
-	parlay::internal::timer t("HNSW", true);
+	const char *dist_func = parameter.getOptionValue("-dist");
+	auto run_test_helper = [&](auto type){ // emulate a generic lambda in C++20
+		using T = decltype(type);
+		if(!strcmp(dist_func,"L2"))
+			run_test<descr_l2<T>>(parameter);
+		else if(!strcmp(dist_func,"angular"))
+			run_test<descr_ang<T>>(parameter);
+		else throw std::invalid_argument("Unsupported distance type");
+	};
 
-	auto [ps,dim] = load_bvec(file_in, cnt_points);
-	t.next("Read inFile");
-
-	fputs("Start building HNSW\n", stderr);
-	HNSW<descr_bvec> g(
-		ps.begin(), ps.begin()+cnt_points, dim,
-		m_l, m, efc, alpha, batch_base, do_fixing
-	);
-	t.next("Build index");
-
-	size_t cnt_degree = g.cnt_degree();
-	printf("total degree: %lu\n", cnt_degree);
-	t.next("Count degrees");
-
-	output_recall(g, parameter, t);
-
+	const char* type = parameter.getOptionValue("-type");
+	if(!strcmp(type,"uint8"))
+		run_test_helper(uint8_t{});
+	else if(!strcmp(type,"int8"))
+		run_test_helper(int8_t{});
+	else if(!strcmp(type,"float"))
+		run_test_helper(float{});
+	else throw std::invalid_argument("Unsupported element type");
 	return 0;
 }
