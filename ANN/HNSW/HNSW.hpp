@@ -35,8 +35,6 @@
 #define debug_output(...) do{[](...){}(__VA_ARGS__);}while(0)
 #endif // DEBUG_OUTPUT
 
-uint32_t flag_query = 0;
-
 namespace ANN{
 
 enum class type_metric{
@@ -946,7 +944,7 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const parlay::sequence<no
 		if(ctrl.skip_search) break;
 		// const auto &f = *(W[0].u);
 		// if(U::distance(c.data,u.data,dim)>U::distance(f.data,u.data,dim))
-		if(C.begin()->d>W[0].d) break;
+		if(C.begin()->d>W[0].d*ctrl.beta) break;
 
 		cnt_eval++;
 		if(ctrl.log_dist)

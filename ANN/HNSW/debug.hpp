@@ -13,6 +13,7 @@ extern parlay::sequence<size_t> per_size_C;
 struct search_control{
 	bool verbose_output;
 	bool skip_search;
+	float beta = 1;
 	std::optional<uint32_t> log_per_stat;
 	std::optional<uint32_t> log_dist;
 	std::optional<uint32_t> log_size;

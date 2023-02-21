@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <algorithm>
 #include <string>
+#include <sstream>
+#include <vector>
 #include <map>
 #include <chrono>
 #include <stdexcept>
@@ -50,8 +52,8 @@ void visit_point(const T &array, size_t dim0, size_t dim1)
 }
 
 template<class U>
-void output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t recall, 
-	uint32_t cnt_query, parlay::sequence<typename U::type_point> &q, parlay::sequence<uint32_t*> &gt, uint32_t rank_max)
+size_t output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t recall, 
+	uint32_t cnt_query, parlay::sequence<typename U::type_point> &q, parlay::sequence<uint32_t*> &gt, uint32_t rank_max, float beta)
 {
 	g.total_visited.assign(parlay::num_workers(), 0);
 	g.total_eval.assign(parlay::num_workers(), 0);
@@ -67,9 +69,9 @@ void output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t
 	t.next("Doing search");
 	//auto t1 = std::chrono::high_resolution_clock::now();
 	parlay::parallel_for(0, cnt_query, [&](size_t i){
-		// flag_query
 		search_control ctrl{};
 		ctrl.log_per_stat = i;
+		ctrl.beta = beta;
 		res[i] = g.search(q[i], recall, ef, ctrl);
 	});
 	//auto t2 = std::chrono::high_resolution_clock::now();
@@ -85,7 +87,7 @@ void output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t
 		recall = rank_max;
 //	uint32_t cnt_all_shot = 0;
 	std::vector<uint32_t> result(recall+1);
-	printf("measure recall@%u with ef=%u on %u queries\n", recall, ef, cnt_query);
+	printf("measure recall@%u with ef=%u beta=%.4f on %u queries\n", recall, ef, beta, cnt_query);
 	for(uint32_t i=0; i<cnt_query; ++i)
 	{
 		uint32_t cnt_shot = 0;
@@ -98,14 +100,14 @@ void output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t
 		result[cnt_shot]++;
 	}
 
-	uint32_t cnt_shot = 0;
-	for(uint32_t i=0; i<=recall; ++i)
+	size_t total_shot = 0;
+	for(size_t i=0; i<=recall; ++i)
 	{
 		printf("%u ", result[i]);
-		cnt_shot += result[i]*i;
+		total_shot += result[i]*i;
 	}
 	putchar('\n');
-	printf("%.6f at %ekqps\n", float(cnt_shot)/cnt_query/recall, cnt_query/time_query/1000);
+	printf("%.6f at %ekqps\n", float(total_shot)/cnt_query/recall, cnt_query/time_query/1000);
 	printf("# visited: %lu\n", parlay::reduce(g.total_visited,parlay::addm<size_t>{}));
 	printf("# eval: %lu\n", parlay::reduce(g.total_eval,parlay::addm<size_t>{}));
 	printf("size of C: %lu\n", parlay::reduce(g.total_size_C,parlay::addm<size_t>{}));
@@ -125,6 +127,7 @@ void output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t
 		printf("\tsize of C: %lu\n", per_size_C[tail_index]);
 	}
 	puts("---");
+	return total_shot;
 }
 
 template<class U>
@@ -134,8 +137,8 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 	{
 		printf(__func__);
 		puts(
-			"[-q <queryFile>] [-g <groundtruthFile>]"
-			"-ef <ef_query> [-r <recall@R>=1] [-k <numQuery>=all]"
+			"-q <queryFile> -g <groundtruthFile> [-k <numQuery>=all]"
+			"-ef <ef_query>,... -r <recall@R>,... -th <threshold>,... -beta <beta>,..."
 		);
 		return;
 	};
@@ -148,15 +151,88 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 	visit_point(q, q.size(), g.dim);
 	t.next("Fetch query vectors");
 
-	uint32_t cnt_rank_cmp = param.getOptionIntValue("-r", 1);
-//	const uint32_t ef = param.getOptionIntValue("-ef", cnt_rank_cmp*50);
-	const uint32_t cnt_pts_query = param.getOptionIntValue("-k", q.size());
-
 	auto [gt,rank_max] = load_point(file_groundtruth, gt_converter<uint32_t>{});
 	t.next("Read groundTruthFile");
 	printf("%s: [%lu,%u]\n", file_groundtruth, gt.size(), rank_max);
+
+	auto parse_array = [](const std::string &s, auto f){
+		std::stringstream ss;
+		ss << s;
+		std::string current;
+		std::vector<decltype(f((char*)NULL))> res;
+		while(std::getline(ss, current, ','))
+			res.push_back(f(current.c_str()));
+		std::sort(res.begin(), res.end());
+		return res;
+	};
+	auto beta = parse_array(param.getOptionValue("-beta"), atof);
+	auto cnt_rank_cmp = parse_array(param.getOptionValue("-r"), atoi);
+	auto ef = parse_array(param.getOptionValue("-ef"), atoi);
+	auto threshold = parse_array(param.getOptionValue("-th"), atof);
+	const uint32_t cnt_query = param.getOptionIntValue("-k", q.size());
+
+	auto get_best = [&](uint32_t k, uint32_t ef){
+		size_t best_shot = 0;
+		// float best_beta = beta[0];
+		for(auto b : beta)
+		{
+			const auto total_shot = 
+				output_recall(g, t, ef, k, cnt_query, q, gt, rank_max, b);
+			if(total_shot>best_shot)
+			{
+				best_shot = total_shot;
+				// best_beta = b;
+			}
+		}
+		// return std::make_pair(best_shot, best_beta);
+		return best_shot;
+	};
+	puts("pattern: (k,ef_max,beta)");
+	const auto ef_max = *ef.rbegin();
+	for(auto k : cnt_rank_cmp)
+		get_best(k, ef_max);
+
+	puts("pattern: (k_min,ef,beta)");
+	const auto k_min = *cnt_rank_cmp.begin();
+	for(auto efq : ef)
+		get_best(k_min, efq);
+
+	puts("pattern: (k,threshold)");
+	for(auto k : cnt_rank_cmp)
+		for(auto t : threshold)
+		{
+			printf("searching for k=%u, th=%f\n", k, t);
+			const size_t target = t*cnt_query*k;
+			uint32_t l=k, r_limit=std::max(k*100, ef_max);
+			uint32_t r = l;
+			bool found = false;
+			while(true)
+			{
+				// auto [best_shot, best_beta] = get_best(k, r);
+				if(get_best(k,r)>=target)
+				{
+					found = true;
+					break;
+				}
+				if(r==r_limit) break;
+				r = std::min(r*2, r_limit);
+			}
+			if(!found) continue;
+			while(r-l>5)
+			{
+				const auto mid = (l+r)/2;
+				const auto best_shot = get_best(k,mid);
+				if(best_shot>=target)
+					r = mid;
+				else
+					l = mid;
+			}
+		}
+
+	/*
 	for(uint32_t scale=1; scale<60; scale+=2)
 		output_recall(g, t, scale*cnt_rank_cmp, cnt_rank_cmp, cnt_pts_query, q, gt, rank_max);
+	*/
 }
 
 template<typename U>
@@ -171,7 +247,6 @@ void run_test(commandLine parameter) // intend to be pass-by-value manner
 	const float batch_base = parameter.getOptionDoubleValue("-b", 2);
 	const bool do_fixing = !!parameter.getOptionIntValue("-f", 0);
 	const char *file_out = parameter.getOptionValue("-out");
-	flag_query = parameter.getOptionIntValue("-flag", 0);
 	
 	parlay::internal::timer t("HNSW", true);
 
