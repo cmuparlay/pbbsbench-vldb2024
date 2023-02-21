@@ -1,10 +1,10 @@
 CXX = g++
 #CXX = clang++
-CXXFLAGS_BASIC = -std=c++17 -Wall -Wextra -pthread -I../bench 
+CXXFLAGS_BASIC = -std=c++17 -Wall -Wextra -pthread -march=native -I../bench 
 ifeq (DEBUG, $(MODE))
 	CXXFLAGS_BASIC += -O0 -g
 else
-	CXXFLAGS_BASIC += -O3 -march=native
+	CXXFLAGS_BASIC += -O3
 endif
 
 CXXFLAGS_HDF5 =
