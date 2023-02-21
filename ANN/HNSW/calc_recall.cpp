@@ -199,11 +199,13 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 
 	puts("pattern: (k,threshold)");
 	for(auto k : cnt_rank_cmp)
+	{
+		uint32_t l_last = k;
 		for(auto t : threshold)
 		{
 			printf("searching for k=%u, th=%f\n", k, t);
 			const size_t target = t*cnt_query*k;
-			uint32_t l=k, r_limit=std::max(k*100, ef_max);
+			uint32_t l=l_last, r_limit=std::max(k*100, ef_max);
 			uint32_t r = l;
 			bool found = false;
 			while(true)
@@ -217,7 +219,7 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 				if(r==r_limit) break;
 				r = std::min(r*2, r_limit);
 			}
-			if(!found) continue;
+			if(!found) break;
 			while(r-l>5)
 			{
 				const auto mid = (l+r)/2;
@@ -227,7 +229,9 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 				else
 					l = mid;
 			}
+			l_last = l;
 		}
+	}
 
 	/*
 	for(uint32_t scale=1; scale<60; scale+=2)
