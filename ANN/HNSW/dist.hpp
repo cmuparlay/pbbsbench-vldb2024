@@ -3,6 +3,7 @@
 
 #include <type_traits>
 #include "type_point.hpp"
+#include "../utils/NSGDist.h"
 
 template<typename T>
 class descr_ang
@@ -45,14 +46,23 @@ public:
 	typedef point<T> type_point;
 	static float distance(const type_point &u, const type_point &v, uint32_t dim)
 	{
-		const auto *uc=u.coord, *vc=v.coord;
-		promoted_type sum = 0;
-		for(uint32_t i=0; i<dim; ++i)
+		if constexpr(std::is_integral_v<T>)
 		{
-			const auto d = promoted_type(uc[i])-vc[i];
-			sum += d*d;
+			const auto *uc=u.coord, *vc=v.coord;
+			promoted_type sum = 0;
+			for(uint32_t i=0; i<dim; ++i)
+			{
+				const auto d = promoted_type(uc[i])-vc[i];
+				sum += d*d;
+			}
+			return sum;
 		}
-		return sum;
+		else
+		{
+			const auto *uc=u.coord, *vc=v.coord;
+			efanna2e::DistanceL2 distfunc;
+			return distfunc.compare(uc, vc, dim);
+		}
 	}
 
 	static auto get_id(const type_point &u)
