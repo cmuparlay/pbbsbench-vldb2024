@@ -10,6 +10,10 @@
 #include "dist.hpp"
 using ANN::HNSW;
 
+parlay::sequence<size_t> per_visited;
+parlay::sequence<size_t> per_eval;
+parlay::sequence<size_t> per_size_C;
+
 template<typename T>
 point_converter_default<T> to_point;
 
@@ -52,6 +56,9 @@ void output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t
 	g.total_visited.assign(parlay::num_workers(), 0);
 	g.total_eval.assign(parlay::num_workers(), 0);
 	g.total_size_C.assign(parlay::num_workers(), 0);
+	per_visited.resize(cnt_query);
+	per_eval.resize(cnt_query);
+	per_size_C.resize(cnt_query);
 	//std::vector<std::vector<std::pair<uint32_t,float>>> res(cnt_query);
 	parlay::sequence<parlay::sequence<std::pair<uint32_t,float>>> res(cnt_query);
 	parlay::parallel_for(0, cnt_query, [&](size_t i){
@@ -62,6 +69,7 @@ void output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t
 	parlay::parallel_for(0, cnt_query, [&](size_t i){
 		// flag_query
 		search_control ctrl{};
+		ctrl.log_per_stat = i;
 		res[i] = g.search(q[i], recall, ef, ctrl);
 	});
 	//auto t2 = std::chrono::high_resolution_clock::now();
@@ -87,17 +95,9 @@ void output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t
 			{
 				cnt_shot++;
 			}
-		/*
-		printf("#%u:\t%u (%.2f)[%lu]", i, cnt_shot, float(cnt_shot)/recall, res[i].size());
-		if(cnt_shot==recall)
-		{
-			cnt_all_shot++;
-		}
-		putchar('\n');
-		*/
 		result[cnt_shot]++;
 	}
-	// printf("#all shot: %u (%.2f)\n", cnt_all_shot, float(cnt_all_shot)/cnt_query);
+
 	uint32_t cnt_shot = 0;
 	for(uint32_t i=0; i<=recall; ++i)
 	{
@@ -109,6 +109,21 @@ void output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t
 	printf("# visited: %lu\n", parlay::reduce(g.total_visited,parlay::addm<size_t>{}));
 	printf("# eval: %lu\n", parlay::reduce(g.total_eval,parlay::addm<size_t>{}));
 	printf("size of C: %lu\n", parlay::reduce(g.total_size_C,parlay::addm<size_t>{}));
+
+	parlay::sort_inplace(per_visited);
+	parlay::sort_inplace(per_eval);
+	parlay::sort_inplace(per_size_C);
+	const double tail_ratio[] = {0.9, 0.99, 0.999};
+	for(size_t i=0; i<sizeof(tail_ratio)/sizeof(*tail_ratio); ++i)
+	{
+		const auto r = tail_ratio[i];
+		const uint32_t tail_index = r*cnt_query;
+		printf("%.4f tail stat (at %u):\n", r, tail_index);
+
+		printf("\t# visited: %lu\n", per_visited[tail_index]);
+		printf("\t# eval: %lu\n", per_eval[tail_index]);
+		printf("\tsize of C: %lu\n", per_size_C[tail_index]);
+	}
 	puts("---");
 }
 
@@ -177,13 +192,14 @@ void run_test(commandLine parameter) // intend to be pass-by-value manner
 
 	const uint32_t height = g.get_height();
 	printf("Highest level: %u\n", height);
-	puts("level     #vertices         #degrees");
+	puts("level     #vertices         #degrees  max_degree");
 	for(uint32_t i=0; i<=height; ++i)
 	{
 		const uint32_t level = height-i;
 		size_t cnt_vertex = g.cnt_vertex(level);
 		size_t cnt_degree = g.cnt_degree(level);
-		printf("#%2u: %14lu %16lu\n", level, cnt_vertex, cnt_degree);
+		size_t degree_max = g.get_degree_max(level);
+		printf("#%2u: %14lu %16lu %11lu\n", level, cnt_vertex, cnt_degree, degree_max);
 	}
 	t.next("Count vertices and degrees");
 

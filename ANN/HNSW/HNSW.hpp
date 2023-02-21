@@ -487,6 +487,16 @@ public:
 		});
 		return parlay::reduce(cnt_each, parlay::addm<size_t>());
 	}
+
+	size_t get_degree_max(uint32_t l) const
+	{
+		auto cnt_each = parlay::delayed_seq<size_t>(n, [&](size_t i){
+			node_id pu = i;
+			return get_node(pu).level<l? 0:
+				neighbourhood(get_node(pu),l).size();
+		});
+		return parlay::reduce(cnt_each, parlay::maxm<size_t>());
+	}
 /*
 	void debug_output_graph(uint32_t l)
 	{
@@ -905,14 +915,8 @@ auto HNSW<U,Allocator>::search_layer(const node &u, const parlay::sequence<node_
 template<typename U, template<typename> class Allocator>
 auto HNSW<U,Allocator>::search_layer_ex(const node &u, const parlay::sequence<node_id> &eps, uint32_t ef, uint32_t l_c, search_control ctrl) const
 {
-	parlay::sequence<std::array<float,5>> dummy;
-	auto &dist_range = (ctrl.log_dist)? dist_in_search[*ctrl.log_dist]: dummy;
 	// parlay::sequence<bool> visited(n);
-	//parlay::sequence<uint32_t> visited(8192);
-	//const uint32_t mask = ef==1? 4: (1<<uint32_t(std::ceil(std::log2(ef*ef))-2))-1;
-	// fprintf(stderr, "ef: %u, mask: %u\n", ef, mask);
 	//parlay::sequence<uint32_t> visited(mask+1, n+1);
-	//parlay::sequence<uint32_t> visited(ctrl==0x400?20:n);
 	// TODO: Try hash to an array
 	// TODO: monitor the size of `visited`
 	std::unordered_set<uint32_t> visited;
@@ -963,7 +967,7 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const parlay::sequence<no
 				t[i]=it->d, std::advance(it,step);
 			t[4] = C.rbegin()->d;
 
-			dist_range.push_back(t);
+			dist_in_search[*ctrl.log_dist].push_back(t);
 		}
 		/*
 		if(C.begin()->d>dist_last)
@@ -1014,6 +1018,13 @@ auto HNSW<U,Allocator>::search_layer_ex(const node &u, const parlay::sequence<no
 		total_visited[id] += visited.size();
 		total_size_C[id] += C.size()+cnt_eval;
 		total_eval[id] += cnt_eval;
+		if(ctrl.log_per_stat)
+		{
+			const auto qid = *ctrl.log_per_stat;
+			per_visited[qid] = visited.size();
+			per_eval[qid] = C.size()+cnt_eval;
+			per_size_C[qid] = cnt_eval;
+		}
 	}
 	return W;
 }
