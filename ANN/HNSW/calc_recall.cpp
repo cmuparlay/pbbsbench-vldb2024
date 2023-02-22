@@ -108,9 +108,9 @@ size_t output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32
 	}
 	putchar('\n');
 	printf("%.6f at %ekqps\n", float(total_shot)/cnt_query/recall, cnt_query/time_query/1000);
-	printf("# visited: %lu\n", parlay::reduce(g.total_visited,parlay::addm<size_t>{}));
-	printf("# eval: %lu\n", parlay::reduce(g.total_eval,parlay::addm<size_t>{}));
-	printf("size of C: %lu\n", parlay::reduce(g.total_size_C,parlay::addm<size_t>{}));
+	printf("# visited: %lu\n", parlay::reduce(per_visited,parlay::addm<size_t>{}));
+	printf("# eval: %lu\n", parlay::reduce(per_eval,parlay::addm<size_t>{}));
+	printf("size of C: %lu\n", parlay::reduce(per_size_C,parlay::addm<size_t>{}));
 
 	parlay::sort_inplace(per_visited);
 	parlay::sort_inplace(per_eval);
