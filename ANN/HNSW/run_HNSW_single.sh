@@ -15,7 +15,7 @@
 # beta
 # th
 # save_graph
-RESULT_PATH=result/$dataset/m${m}_efc${efc}_a${alpha}
+RESULT_PATH=${RESULT_PREFIX}/result/$dataset/m${m}_efc${efc}_a${alpha}
 
 #set -x
 date

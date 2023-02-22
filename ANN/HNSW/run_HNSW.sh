@@ -1,3 +1,5 @@
+export RESULT_PREFIX="."
+
 export dataset=
 export dtype=
 export dist=
@@ -93,7 +95,6 @@ bash run_HNSW_single.sh
 scale=10
 file_gt=$SP/msspacev-10M:ubin
 th=0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9,0.95,0.99
-file_in=$SP/spacev1b_base.i8bin.crop_nb_10000000:i8bin
 bash run_HNSW_single.sh
 
 scale=100
