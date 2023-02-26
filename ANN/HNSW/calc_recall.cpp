@@ -221,20 +221,20 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 		}(param.getOptionValue("-rad"));
 
 	auto get_best = [&](uint32_t k, uint32_t ef){
-		size_t best_shot = 0;
+		double best_recall = 0;
 		// float best_beta = beta[0];
 		for(auto b : beta)
 		{
-			const size_t total_shot = 
-				output_recall(g, t, ef, k, cnt_query, q, gt, rank_max, b, radius)*cnt_query*k;
-			if(total_shot>best_shot)
+			const double cur_recall = 
+				output_recall(g, t, ef, k, cnt_query, q, gt, rank_max, b, radius);
+			if(cur_recall>best_recall)
 			{
-				best_shot = total_shot;
+				best_recall = cur_recall;
 				// best_beta = b;
 			}
 		}
-		// return std::make_pair(best_shot, best_beta);
-		return best_shot;
+		// return std::make_pair(best_recall, best_beta);
+		return best_recall;
 	};
 	puts("pattern: (k,ef_max,beta)");
 	const auto ef_max = *ef.rbegin();
@@ -253,7 +253,8 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 		for(auto t : threshold)
 		{
 			printf("searching for k=%u, th=%f\n", k, t);
-			const size_t target = t*cnt_query*k;
+			const double target = t;
+			// const size_t target = t*cnt_query*k;
 			uint32_t l=l_last, r_limit=std::max(k*100, ef_max);
 			uint32_t r = l;
 			bool found = false;
@@ -348,7 +349,7 @@ int main(int argc, char **argv)
 
 	commandLine parameter(argc, argv, 
 		"-type <elemType> -dist <distance> -n <numInput> -ml <m_l> -m <m> "
-		"-efc <ef_construction> -alpha <alpha> -r <recall@R> [-b <batchBase>]"
+		"-efc <ef_construction> -alpha <alpha> -f <symmEdge> [-b <batchBase>]"
 		"-in <inFile> -out <outFile> -q <queryFile> -g <groundtruthFile> [-k <numQuery>=all]"
 		"-ef <ef_query>,... -r <recall@R>,... -th <threshold>,... -beta <beta>,..."
 		"[-rad radius (for range search)]"
