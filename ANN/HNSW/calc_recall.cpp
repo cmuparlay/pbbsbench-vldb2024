@@ -54,16 +54,19 @@ void visit_point(const T &array, size_t dim0, size_t dim1)
 
 template<class U>
 double output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t k, 
-	uint32_t cnt_query, parlay::sequence<typename U::type_point> &q, parlay::sequence<parlay::sequence<uint32_t>> &gt, uint32_t rank_max, float beta, std::optional<float> radius)
+	uint32_t cnt_query, parlay::sequence<typename U::type_point> &q, parlay::sequence<parlay::sequence<uint32_t>> &gt, uint32_t rank_max, float beta, bool warmup, std::optional<float> radius)
 {
 	per_visited.resize(cnt_query);
 	per_eval.resize(cnt_query);
 	per_size_C.resize(cnt_query);
 	//std::vector<std::vector<std::pair<uint32_t,float>>> res(cnt_query);
 	parlay::sequence<parlay::sequence<std::pair<uint32_t,float>>> res(cnt_query);
-	parlay::parallel_for(0, cnt_query, [&](size_t i){
-		res[i] = g.search(q[i], k, ef);
-	});
+	if(warmup)
+	{
+		parlay::parallel_for(0, cnt_query, [&](size_t i){
+			res[i] = g.search(q[i], k, ef);
+		});
+	}
 	t.next("Doing search");
 	//auto t1 = std::chrono::high_resolution_clock::now();
 	g.total_range_candidate.assign(parlay::num_workers(), 0);
@@ -216,6 +219,7 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 	auto ef = parse_array(param.getOptionValue("-ef"), atoi);
 	auto threshold = parse_array(param.getOptionValue("-th"), atof);
 	const uint32_t cnt_query = param.getOptionIntValue("-k", q.size());
+	const bool enable_warmup = !!param.getOptionIntValue("-w", 1);
 	auto radius = [](const char *s) -> std::optional<float>{
 			return s? std::optional<float>{atof(s)}: std::optional<float>{};
 		}(param.getOptionValue("-rad"));
@@ -226,7 +230,7 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 		for(auto b : beta)
 		{
 			const double cur_recall = 
-				output_recall(g, t, ef, k, cnt_query, q, gt, rank_max, b, radius);
+				output_recall(g, t, ef, k, cnt_query, q, gt, rank_max, b, enable_warmup, radius);
 			if(cur_recall>best_recall)
 			{
 				best_recall = cur_recall;
@@ -270,7 +274,7 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 				r = std::min(r*2, r_limit);
 			}
 			if(!found) break;
-			while(r-l>5)
+			while(r-l>l*0.05+1)
 			{
 				const auto mid = (l+r)/2;
 				const auto best_shot = get_best(k,mid);
@@ -352,7 +356,7 @@ int main(int argc, char **argv)
 		"-efc <ef_construction> -alpha <alpha> -f <symmEdge> [-b <batchBase>]"
 		"-in <inFile> -out <outFile> -q <queryFile> -g <groundtruthFile> [-k <numQuery>=all]"
 		"-ef <ef_query>,... -r <recall@R>,... -th <threshold>,... -beta <beta>,..."
-		"[-rad radius (for range search)]"
+		"[-w <warmup>] [-rad radius (for range search)]"
 	);
 
 	const char *dist_func = parameter.getOptionValue("-dist");
