@@ -840,7 +840,6 @@ void HNSW<U,Allocator>::insert(Iter begin, Iter end, bool from_blank)
 			// std::unordered_set<node_id> hash_table(nbh_v.begin(),nbh_v.end());
 			for(auto it=nbh_v_add.begin(); it!=nbh_v_add.end();)
 			{
-				
 				bool is_extant = *it==pv||std::find_if(nbh_v.begin(), nbh_v.end(), [&](const node_id pu_extant){
 					return *it==pu_extant;
 				})!=nbh_v.end();
@@ -1361,15 +1360,14 @@ parlay::sequence<std::pair<uint32_t,float>> HNSW<U,Allocator>::search(const T &q
 	// auto R = select_neighbors_simple(q, W_ex, k);
 
 	auto &R = W_ex;
-	std::sort(R.begin(), R.end(), farthest());
 	if(!ctrl.radius && R.size()>k) // the range search ignores the given k
 	{
+		std::sort(R.begin(), R.end(), farthest());
 		if(k>0)
 			k = std::upper_bound(R.begin()+k, R.end(), R[k-1], farthest())-R.begin();
 		R.resize(k);
 	}
 
-	std::sort(R.begin(), R.end(), farthest());
 	parlay::sequence<std::pair<uint32_t,float>> res;
 	res.reserve(R.size());
 	/*
