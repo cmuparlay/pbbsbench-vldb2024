@@ -129,6 +129,7 @@ public:
 	mutable parlay::sequence<size_t> total_visited = parlay::sequence<size_t>(parlay::num_workers());
 	mutable parlay::sequence<size_t> total_eval = parlay::sequence<size_t>(parlay::num_workers());
 	mutable parlay::sequence<size_t> total_size_C = parlay::sequence<size_t>(parlay::num_workers());
+	mutable parlay::sequence<size_t> total_range_candidate = parlay::sequence<size_t>(parlay::num_workers());
 
 	static auto neighbourhood(const node &u, uint32_t level)
 		-> parlay::sequence<node_id>&
@@ -839,7 +840,6 @@ void HNSW<U,Allocator>::insert(Iter begin, Iter end, bool from_blank)
 			// std::unordered_set<node_id> hash_table(nbh_v.begin(),nbh_v.end());
 			for(auto it=nbh_v_add.begin(); it!=nbh_v_add.end();)
 			{
-				
 				bool is_extant = *it==pv||std::find_if(nbh_v.begin(), nbh_v.end(), [&](const node_id pu_extant){
 					return *it==pu_extant;
 				})!=nbh_v.end();
@@ -911,7 +911,7 @@ auto HNSW<U,Allocator>::search_layer(const node &u, const parlay::sequence<node_
 	std::unordered_set<uint32_t> visited;
 	// std::priority_queue<dist_ex,parlay::sequence<dist_ex>,nearest> C;
 	// std::priority_queue<dist_ex,parlay::sequence<dist_ex>,farthest> W;
-	parlay::sequence<dist> W;
+	parlay::sequence<dist> W, discarded;
 	std::set<dist,farthest> C;
 	W.reserve(ef);
 
@@ -993,6 +993,8 @@ auto HNSW<U,Allocator>::search_layer(const node &u, const parlay::sequence<node_
 				if(W.size()>ef)
 				{
 					std::pop_heap(W.begin(), W.end(), farthest());
+					if(ctrl.radius && W.back().d<=*ctrl.radius)
+						discarded.push_back(W.back());
 					W.pop_back();
 				}
 				if(C.size()>ef)
@@ -1015,6 +1017,25 @@ auto HNSW<U,Allocator>::search_layer(const node &u, const parlay::sequence<node_
 			per_eval[qid] = C.size()+cnt_eval;
 			per_size_C[qid] = cnt_eval;
 		}
+	}
+
+	if(ctrl.radius)
+	{
+		const auto rad = *ctrl.radius;
+		auto split = std::partition(W.begin(), W.end(), [rad](const dist &e){
+			return e.d <= rad;
+		});
+		W.resize(split-W.begin());
+		W.append(discarded);
+		/*
+		while(true)
+		{
+			auto it = C.begin();
+			if(it->d>rad) break;
+			W.push_back(*it);
+		}
+		*/
+		total_range_candidate[parlay::worker_id()] += W.size();
 	}
 	return W;
 }
@@ -1339,15 +1360,14 @@ parlay::sequence<std::pair<uint32_t,float>> HNSW<U,Allocator>::search(const T &q
 	// auto R = select_neighbors_simple(q, W_ex, k);
 
 	auto &R = W_ex;
-	std::sort(R.begin(), R.end(), farthest());
-	if(R.size()>k)
+	if(!ctrl.radius && R.size()>k) // the range search ignores the given k
 	{
+		std::sort(R.begin(), R.end(), farthest());
 		if(k>0)
 			k = std::upper_bound(R.begin()+k, R.end(), R[k-1], farthest())-R.begin();
 		R.resize(k);
 	}
 
-	std::sort(R.begin(), R.end(), farthest());
 	parlay::sequence<std::pair<uint32_t,float>> res;
 	res.reserve(R.size());
 	/*
