@@ -155,6 +155,12 @@ public:
 	using type = T;
 };
 
+template<class T>
+class trait_type<parlay::sequence<T>,void>{
+public:
+	using type = T;
+};
+
 template<class Conv>
 inline std::pair<parlay::sequence<typename Conv::type>,uint32_t>
 load_from_HDF5(const char *file, const char *dir, Conv converter, uint32_t max_num)
@@ -189,9 +195,9 @@ load_from_bin(const char *file, Conv converter, uint32_t max_num)
 {
 	auto [fileptr, length] = mmapStringFromFile(file); (void)length;
 	const uint32_t n = std::min(max_num, *((uint32_t*)fileptr));
-    const uint32_t dim = *((uint32_t*)(fileptr+sizeof(n)));
-    const size_t vector_size = sizeof(Src)*dim;
-    const size_t header_size = sizeof(n)+sizeof(dim);
+	const uint32_t dim = *((uint32_t*)(fileptr+sizeof(n)));
+	const size_t vector_size = sizeof(Src)*dim;
+	const size_t header_size = sizeof(n)+sizeof(dim);
 
 	typedef ptr_mapped<const Src,ptr_mapped_src::PERSISTENT> type_ptr;
 	parlay::sequence<typename Conv::type> ps(n);
@@ -201,6 +207,36 @@ load_from_bin(const char *file, Conv converter, uint32_t max_num)
 	});
 
 	return {std::move(ps), dim};
+}
+
+template<typename Src, class Conv>
+inline std::pair<parlay::sequence<typename Conv::type>,uint32_t>
+load_from_range(const char *file, Conv converter, uint32_t max_num)
+{
+	auto [fileptr, length] = mmapStringFromFile(file); (void)length;
+	const int32_t num_points = *(int32_t*)fileptr;
+	const int32_t num_matches = *(int32_t*)(fileptr+sizeof(num_points));
+	const size_t header_size = sizeof(num_points)+sizeof(num_matches);
+
+	int32_t* begin = (int32_t*)(fileptr+header_size);
+	int32_t* end = begin + num_points;
+	auto [offsets, total] = parlay::scan(parlay::make_slice(begin,end));
+	offsets.push_back(total);
+	std::cout << "num_matches: " << num_matches << ' ' << total << std::endl;
+
+	const size_t index_size = header_size+num_points*sizeof(*begin);
+	std::cout << "index_size: " << index_size << std::endl;
+
+	typedef ptr_mapped<const Src,ptr_mapped_src::PERSISTENT> type_ptr;
+	const uint32_t n = std::min<uint32_t>(max_num, num_points);
+	parlay::sequence<typename Conv::type> ps(n);
+	parlay::parallel_for(0, n, [&,fp=fileptr](uint32_t i){
+		const Src *begin = (const Src*)(fp+index_size+offsets[i]*sizeof(Src));
+		const Src *end = (const Src*)(fp+index_size+offsets[i+1]*sizeof(Src));
+		ps[i] = converter(i, type_ptr(begin), type_ptr(end));
+	});
+
+	return {std::move(ps), 0};
 }
 /*
 template<typename Src=void, class Conv>
@@ -257,6 +293,8 @@ inline auto load_point(const char *input_name, Conv converter, size_t max_num=0)
 		return load_from_bin<uint32_t>(file, converter, max_num);
 	if(!strcmp(input_spec,"fbin"))
 		return load_from_bin<float>(file, converter, max_num);
+	if(!strcmp(input_spec,"irange"))
+		return load_from_range<int32_t>(file, converter, max_num);
 
 	throw std::invalid_argument("Unsupported input spec");
 }
