@@ -35,6 +35,31 @@ public:
 };
 
 template<typename T>
+class descr_ndot
+{
+	using promoted_type = std::conditional_t<std::is_integral_v<T>&&sizeof(T)<=4,
+		std::conditional_t<sizeof(T)==4, int64_t, int32_t>,
+		float
+	>;
+public:
+	typedef T type_elem;
+	typedef point<T> type_point;
+	static float distance(const type_point &u, const type_point &v, uint32_t dim)
+	{
+		const auto *uc=u.coord, *vc=v.coord;
+		promoted_type dot=0;
+		for(uint32_t i=0; i<dim; ++i)
+			dot += promoted_type(uc[i])*vc[i];
+		return -float(dot);
+	}
+
+	static auto get_id(const type_point &u)
+	{
+		return u.id;
+	}
+};
+
+template<typename T>
 class descr_l2
 {
 	using promoted_type = std::conditional_t<std::is_integral_v<T>&&sizeof(T)<=4,

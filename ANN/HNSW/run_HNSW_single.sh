@@ -17,7 +17,7 @@
 # rad
 # warmup
 # save_graph
-RESULT_PATH=${RESULT_PREFIX}/result/$dataset/m${m}_efc${efc}_a${alpha}
+RESULT_PATH=${RESULT_PREFIX}/result/$dataset/m${m}_efc${efc}_a${alpha}_${dist}_${dtype}
 
 #set -x
 date

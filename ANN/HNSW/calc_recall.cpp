@@ -366,6 +366,8 @@ int main(int argc, char **argv)
 			run_test<descr_l2<T>>(parameter);
 		else if(!strcmp(dist_func,"angular"))
 			run_test<descr_ang<T>>(parameter);
+		else if(!strcmp(dist_func,"ndot"))
+			run_test<descr_ndot<T>>(parameter);
 		else throw std::invalid_argument("Unsupported distance type");
 	};
 
