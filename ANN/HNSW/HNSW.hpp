@@ -909,8 +909,6 @@ auto HNSW<U,Allocator>::search_layer(const node &u, const parlay::sequence<node_
 	// TODO: Try hash to an array
 	// TODO: monitor the size of `visited`
 	std::unordered_set<uint32_t> visited;
-	// std::priority_queue<dist_ex,parlay::sequence<dist_ex>,nearest> C;
-	// std::priority_queue<dist_ex,parlay::sequence<dist_ex>,farthest> W;
 	parlay::sequence<dist> W, discarded;
 	std::set<dist,farthest> C;
 	W.reserve(ef);
@@ -921,21 +919,16 @@ auto HNSW<U,Allocator>::search_layer(const node &u, const parlay::sequence<node_
 		//visited[parlay::hash64_2(id)&mask] = id;
 		visited.insert(U::get_id(get_node(ep).data));
 		const auto d = U::distance(u.data,get_node(ep).data,dim);
-		// C.push_back({d,ep,1});
 		C.insert({d,ep});
 		W.push_back({d,ep});
 	}
 	// std::make_heap(C.begin(), C.end(), nearest());
 	std::make_heap(W.begin(), W.end(), farthest());
 
-	// uint32_t cnt_inc = 0;
-	// float dist_last = 1e10;
 	uint32_t cnt_eval = 0;
 	while(C.size()>0)
 	{
 		if(ctrl.skip_search) break;
-		// const auto &f = *(W[0].u);
-		// if(U::distance(c.data,u.data,dim)>U::distance(f.data,u.data,dim))
 		if(C.begin()->d>W[0].d*ctrl.beta) break;
 
 		cnt_eval++;
@@ -959,16 +952,7 @@ auto HNSW<U,Allocator>::search_layer(const node &u, const parlay::sequence<node_
 
 			dist_in_search[*ctrl.log_dist].push_back(t);
 		}
-		/*
-		if(C.begin()->d>dist_last)
-		{
-			if(++cnt_inc>5) break;
-		}
-		else cnt_inc = 0;
-		dist_last = C.begin()->d;
-		*/
 
-		// const auto dc = C.begin()->depth;
 		const auto &c = get_node(C.begin()->u);
 		// std::pop_heap(C.begin(), C.end(), nearest());
 		// C.pop_back();
@@ -980,8 +964,6 @@ auto HNSW<U,Allocator>::search_layer(const node &u, const parlay::sequence<node_
 			//if(visited[idx]==id) continue;
 			//visited[idx] = id;
 			if(!visited.insert(U::get_id(get_node(pv).data)).second) continue;
-			// const auto &f = *(W[0].u);
-			// if(W.size()<ef||U::distance(get_node(pv).data,u.data,dim)<U::distance(f.data,u.data,dim))
 			const auto d = U::distance(u.data,get_node(pv).data,dim);
 			if(W.size()<ef||d<W[0].d)
 			{
@@ -1027,14 +1009,6 @@ auto HNSW<U,Allocator>::search_layer(const node &u, const parlay::sequence<node_
 		});
 		W.resize(split-W.begin());
 		W.append(discarded);
-		/*
-		while(true)
-		{
-			auto it = C.begin();
-			if(it->d>rad) break;
-			W.push_back(*it);
-		}
-		*/
 		total_range_candidate[parlay::worker_id()] += W.size();
 	}
 	return W;
