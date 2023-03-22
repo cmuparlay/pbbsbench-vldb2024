@@ -132,6 +132,7 @@ double output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32
 		printf("#non-zero queries: %u, #zero queries: %u\n", num_nonzero, num_zero);
 		printf("non-zero recall: %f, zero recall: %f\n", nonzero_recall, zero_recall);
 		printf("total_recall: %f, alt_recall: %f\n", total_recall, alt_recall);
+		printf("size of range candidates: %lu\n", parlay::reduce(g.total_range_candidate,parlay::addm<size_t>{}));
 
 		ret_val = nonzero_recall;
 	}
@@ -170,7 +171,10 @@ double output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32
 	printf("# visited: %lu\n", parlay::reduce(per_visited,parlay::addm<size_t>{}));
 	printf("# eval: %lu\n", parlay::reduce(per_eval,parlay::addm<size_t>{}));
 	printf("size of C: %lu\n", parlay::reduce(per_size_C,parlay::addm<size_t>{}));
-	printf("size of range candidates: %lu\n", parlay::reduce(g.total_range_candidate,parlay::addm<size_t>{}));
+	if(limit_eval)
+		printf("limit the number of evaluated nodes : %u\n", *limit_eval);
+	else
+		puts("no limit on the number of evaluated nodes");
 
 	parlay::sort_inplace(per_visited);
 	parlay::sort_inplace(per_eval);
@@ -307,7 +311,7 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 				{
 					const auto mid = (l+r)/2;
 					const auto best_shot = get_best(k,ef_min,mid); // limit #eval here
-					if(best_shot>=target)
+					if(best_shot>=*it)
 						r = mid;
 					else
 						l = mid;
