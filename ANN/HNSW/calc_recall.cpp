@@ -214,7 +214,7 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 		std::sort(res.begin(), res.end());
 		return res;
 	};
-	auto beta = parse_array(param.getOptionValue("-beta"), atof);
+	auto beta = parse_array(param.getOptionValue("-beta","1.0"), atof);
 	auto cnt_rank_cmp = parse_array(param.getOptionValue("-r"), atoi);
 	auto ef = parse_array(param.getOptionValue("-ef"), atoi);
 	auto threshold = parse_array(param.getOptionValue("-th"), atof);
@@ -274,7 +274,7 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 				r = std::min(r*2, r_limit);
 			}
 			if(!found) break;
-			while(r-l>l*0.05+1)
+			while(r-l>l*0.05+1) // save work based on an empirical value
 			{
 				const auto mid = (l+r)/2;
 				const auto best_shot = get_best(k,mid);
@@ -287,10 +287,6 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 		}
 	}
 
-	/*
-	for(uint32_t scale=1; scale<60; scale+=2)
-		output_recall(g, t, scale*cnt_rank_cmp, cnt_rank_cmp, cnt_pts_query, q, gt, rank_max);
-	*/
 }
 
 template<typename U>
@@ -353,9 +349,9 @@ int main(int argc, char **argv)
 
 	commandLine parameter(argc, argv, 
 		"-type <elemType> -dist <distance> -n <numInput> -ml <m_l> -m <m> "
-		"-efc <ef_construction> -alpha <alpha> -f <symmEdge> [-b <batchBase>]"
-		"-in <inFile> -out <outFile> -q <queryFile> -g <groundtruthFile> [-k <numQuery>=all]"
-		"-ef <ef_query>,... -r <recall@R>,... -th <threshold>,... -beta <beta>,..."
+		"-efc <ef_construction> -alpha <alpha> -f <symmEdge> [-b <batchBase>] "
+		"-in <inFile> -out <outFile> -q <queryFile> -g <groundtruthFile> [-k <numQuery>=all] "
+		"-ef <ef_query>,... -r <recall@R>,... -th <threshold>,... [-beta <beta>,...] "
 		"[-w <warmup>] [-rad radius (for range search)]"
 	);
 
