@@ -19,6 +19,7 @@ struct search_control{
 	std::optional<uint32_t> log_dist;
 	std::optional<uint32_t> log_size;
 	std::optional<uint32_t> indicate_ep;
+	std::optional<uint32_t> limit_eval;
 };
 
 #endif // _DEBUG_HPP_

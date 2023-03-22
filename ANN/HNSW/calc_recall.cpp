@@ -54,7 +54,8 @@ void visit_point(const T &array, size_t dim0, size_t dim1)
 
 template<class U>
 double output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32_t k, 
-	uint32_t cnt_query, parlay::sequence<typename U::type_point> &q, parlay::sequence<parlay::sequence<uint32_t>> &gt, uint32_t rank_max, float beta, bool warmup, std::optional<float> radius)
+	uint32_t cnt_query, parlay::sequence<typename U::type_point> &q, parlay::sequence<parlay::sequence<uint32_t>> &gt, 
+	uint32_t rank_max, float beta, bool warmup, std::optional<float> radius, std::optional<uint32_t> limit_eval)
 {
 	per_visited.resize(cnt_query);
 	per_eval.resize(cnt_query);
@@ -79,6 +80,7 @@ double output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32
 		ctrl.log_per_stat = i;
 		ctrl.beta = beta;
 		ctrl.radius = radius;
+		ctrl.limit_eval = limit_eval;
 		res[i] = g.search(q[i], k, ef, ctrl);
 	});
 	//auto t2 = std::chrono::high_resolution_clock::now();
@@ -220,17 +222,18 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 	auto threshold = parse_array(param.getOptionValue("-th"), atof);
 	const uint32_t cnt_query = param.getOptionIntValue("-k", q.size());
 	const bool enable_warmup = !!param.getOptionIntValue("-w", 1);
+	const bool limit_eval = !!param.getOptionIntValue("-le", 0);
 	auto radius = [](const char *s) -> std::optional<float>{
 			return s? std::optional<float>{atof(s)}: std::optional<float>{};
 		}(param.getOptionValue("-rad"));
 
-	auto get_best = [&](uint32_t k, uint32_t ef){
+	auto get_best = [&](uint32_t k, uint32_t ef, std::optional<uint32_t> limit_eval=std::nullopt){
 		double best_recall = 0;
 		// float best_beta = beta[0];
 		for(auto b : beta)
 		{
 			const double cur_recall = 
-				output_recall(g, t, ef, k, cnt_query, q, gt, rank_max, b, enable_warmup, radius);
+				output_recall(g, t, ef, k, cnt_query, q, gt, rank_max, b, enable_warmup, radius, limit_eval);
 			if(cur_recall>best_recall)
 			{
 				best_recall = cur_recall;
@@ -287,6 +290,32 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 		}
 	}
 
+	if(limit_eval)
+	{
+		puts("pattern: (ef_min,k,le,threshold(low numbers))");
+		const auto ef_min = *ef.begin();
+		for(auto k : cnt_rank_cmp)
+		{
+			const auto base_shot = get_best(k,ef_min);
+			const auto base_eval = parlay::reduce(per_eval,parlay::addm<size_t>{});
+			auto base_it = std::lower_bound(threshold.begin(), threshold.end(), base_shot);
+			uint32_t l_last = 0; // limit #eval to 0 must keep the recall below the threshold
+			for(auto it=threshold.begin(); it!=base_it; ++it)
+			{
+				uint32_t l=l_last, r=base_eval;
+				while(r-l>l*0.05+1)
+				{
+					const auto mid = (l+r)/2;
+					const auto best_shot = get_best(k,ef_min,mid); // limit #eval here
+					if(best_shot>=target)
+						r = mid;
+					else
+						l = mid;
+				}
+				l_last = l;
+			}
+		}
+	}
 }
 
 template<typename U>
@@ -352,7 +381,7 @@ int main(int argc, char **argv)
 		"-efc <ef_construction> -alpha <alpha> -f <symmEdge> [-b <batchBase>] "
 		"-in <inFile> -out <outFile> -q <queryFile> -g <groundtruthFile> [-k <numQuery>=all] "
 		"-ef <ef_query>,... -r <recall@R>,... -th <threshold>,... [-beta <beta>,...] "
-		"[-w <warmup>] [-rad radius (for range search)]"
+		"-le <limit_num_eval> [-w <warmup>] [-rad radius (for range search)]"
 	);
 
 	const char *dist_func = parameter.getOptionValue("-dist");

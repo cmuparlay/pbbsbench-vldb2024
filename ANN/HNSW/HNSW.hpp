@@ -926,12 +926,13 @@ auto HNSW<U,Allocator>::search_layer(const node &u, const parlay::sequence<node_
 	std::make_heap(W.begin(), W.end(), farthest());
 
 	uint32_t cnt_eval = 0;
+	uint32_t limit_eval = ctrl.limit_eval.value_or(n);
 	while(C.size()>0)
 	{
 		if(ctrl.skip_search) break;
 		if(C.begin()->d>W[0].d*ctrl.beta) break;
 
-		cnt_eval++;
+		if(++cnt_eval>limit_eval) break;
 		if(ctrl.log_dist)
 		{
 			std::array<float,5> t;
