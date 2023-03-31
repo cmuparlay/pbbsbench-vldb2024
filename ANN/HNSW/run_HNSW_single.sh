@@ -41,6 +41,9 @@ fi
 if [ $save_graph -ne 0 ]; then
 	param_other="${param_other} -out ${RESULT_PATH}/${scale}M.bin"
 fi
+if [ -n "$load_graph" ]; then
+	param_other="${param_other} -load ${load_graph}"
+fi
 echo "Setting thread=${thread}"
 export PARLAY_NUM_THREADS=${thread}
 echo "./calc_recall ${param_basic} ${param_building} ${param_query} ${param_other} > ${RESULT_PATH}/${scale}M.log 2>&1"
