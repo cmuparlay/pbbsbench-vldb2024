@@ -19,11 +19,7 @@
 # save_graph
 # thread
 # limit_eval
-if [ $load_graph -ne 0 ]; then
-	RESULT_PATH=${RESULT_PREFIX}/result/$dataset/m${m}_efc${efc}_a${alpha}
-else
-	RESULT_PATH=${RESULT_PREFIX}/result/$dataset/m${m}_efc${efc}_a${alpha}_${dist}_${dtype}_le${limit_eval}_thread${thread}
-fi
+RESULT_PATH=${RESULT_PREFIX}/result/$dataset/m${m}_efc${efc}_a${alpha}_${dist}_${dtype}_le${limit_eval}_thread${thread}
 
 #set -x
 date
@@ -40,9 +36,6 @@ if [ -n "$rad" ]; then
 fi
 if [ $save_graph -ne 0 ]; then
 	param_other="${param_other} -out ${RESULT_PATH}/${scale}M.bin"
-fi
-if [ -n "$load_graph" ]; then
-	param_other="${param_other} -load ${load_graph}"
 fi
 echo "Setting thread=${thread}"
 export PARLAY_NUM_THREADS=${thread}
