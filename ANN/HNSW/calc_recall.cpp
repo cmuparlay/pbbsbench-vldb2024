@@ -334,7 +334,6 @@ void run_test(commandLine parameter) // intend to be pass-by-value manner
 	const float batch_base = parameter.getOptionDoubleValue("-b", 2);
 	const bool do_fixing = !!parameter.getOptionIntValue("-f", 0);
 	const char *file_out = parameter.getOptionValue("-out");
-	const bool load_graph = !!parameter.getOptionIntValue("-load", 0);
 	
 	parlay::internal::timer t("HNSW", true);
 
@@ -347,17 +346,10 @@ void run_test(commandLine parameter) // intend to be pass-by-value manner
 	t.next("Fetch input vectors");
 
 	fputs("Start building HNSW\n", stderr);
-	/*
 	HNSW<U> g(
 		ps.begin(), ps.begin()+ps.size(), dim,
 		m_l, m, efc, alpha, batch_base, do_fixing
 	);
-	*/
-	fprintf(stderr, "Checking if set to load a graph");
-	assert(load_graph);
-	HNSW<U> g(file_out, [&](uint32_t i){
-		return ps[i];
-	});
 	t.next("Build index");
 
 	const uint32_t height = g.get_height();
@@ -375,8 +367,7 @@ void run_test(commandLine parameter) // intend to be pass-by-value manner
 
 	if(file_out)
 	{
-		fprintf(stderr, "Saving graph is temporarily disabled\n");
-		//g.save(file_out);
+		g.save(file_out);
 		t.next("Write to the file");
 	}
 
