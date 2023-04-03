@@ -301,7 +301,7 @@ void output_recall(HNSW<U> &g, commandLine param, parlay::internal::timer &t)
 		for(auto k : cnt_rank_cmp)
 		{
 			const auto base_shot = get_best(k,ef_min);
-			const auto base_eval = parlay::reduce(per_eval,parlay::addm<size_t>{});
+			const auto base_eval = parlay::reduce(per_eval,parlay::addm<size_t>{})/cnt_query+1;
 			auto base_it = std::lower_bound(threshold.begin(), threshold.end(), base_shot);
 			uint32_t l_last = 0; // limit #eval to 0 must keep the recall below the threshold
 			for(auto it=threshold.begin(); it!=base_it; ++it)
