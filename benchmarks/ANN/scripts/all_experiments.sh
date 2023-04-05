@@ -1,9 +1,5 @@
 #!/bin/bash
 cd ~/pbbsbench/benchmarks/ANN/scripts
-#download datasets
-bash download_datasets.sh
-#prepare groundtruth for 1M slices
-bash prepare_datasets.sh
 #nearest neighbor search experiments
 bash vamana.sh
 bash hcnng.sh
