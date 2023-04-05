@@ -4,6 +4,7 @@ cd ~/pbbsbench/benchmarks/ANN/scripts
 bash vamana.sh
 bash hcnng.sh
 bash pynndescent.sh
+bash hnsw.sh
 #range search experiments
 cd ~/pbbsbench/benchmarks/rangeSearch/scripts
 bash all_experiments.sh

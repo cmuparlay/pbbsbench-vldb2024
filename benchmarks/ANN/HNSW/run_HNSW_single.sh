@@ -19,7 +19,7 @@
 # save_graph
 # thread
 # limit_eval
-RESULT_PATH=${RESULT_PREFIX}/result/$dataset/m${m}_efc${efc}_a${alpha}_${dist}_${dtype}_le${limit_eval}_thread${thread}
+RESULT_PATH=${RESULT_PREFIX}/HNSW/$dataset/m${m}_efc${efc}_a${alpha}_${dist}_${dtype}_le${limit_eval}_thread${thread}
 
 #set -x
 date
