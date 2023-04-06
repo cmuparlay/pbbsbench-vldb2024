@@ -11,7 +11,7 @@
 #include <atomic>
 #include <stdexcept>
 #include "dist.hpp"
-#include "../../hnswlib/hnswlib.h"
+#include "hnswlib/hnswlib/hnswlib.h"
 #include <parlay/parallel.h>
 #include <parlay/primitives.h>
 #include <parlay/delayed_sequence.h>

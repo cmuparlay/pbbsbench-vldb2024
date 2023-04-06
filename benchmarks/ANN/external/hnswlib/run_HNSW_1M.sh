@@ -1,4 +1,4 @@
-export RESULT_PREFIX="."
+export RESULT_PREFIX="/ssd1/results"
 
 export dataset=
 export dtype=
@@ -41,14 +41,3 @@ file_gt=${dataset_base}/bigann-1M:ubin
 for thread in ${threadset[@]}; do
 	bash run_HNSW_single.sh
 done
-
-exit
-m=50
-efc=200
-
-scale=1
-file_gt=${dataset_base}/bigann-1M:ubin
-for thread in ${threadset[@]}; do
-	bash run_HNSW_single.sh
-done
-

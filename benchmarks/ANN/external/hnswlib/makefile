@@ -1,7 +1,7 @@
 CXX = g++
 #CXX = clang++
-DIR_PARLAY = ./parlaylib/include
-DIR_INCLUDE = $(DIR_PARLAY)
+DIR_BENCH = ../../bench
+DIR_INCLUDE = $(DIR_BENCH)
 
 CXXFLAGS_BASIC = -std=c++17 -Wall -Wextra -march=native -pthread $(DIR_INCLUDE:%=-I%)
 ifeq (DEBUG, $(MODE))
