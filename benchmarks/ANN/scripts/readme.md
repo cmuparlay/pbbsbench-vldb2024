@@ -21,7 +21,7 @@ To prepare the datasets, run "download_datasets.sh." It may need to be re-run tw
 Experiments
 -----------
 
-To make sure everything is working correctly, we recommend first running "all_1M.sh." This will run a set of million-size experiments and write the results as CSV files to /ssd1/results. 
+We provide files to run experiments by dataset size. We recommend running experiments in order of size--i.e. first 1 million, then 10 million, and so on. The script names are "all_[size].sh." If you want to run all experiments at once, you can run "all_experiments.sh." Note that running this script on the MsV2 machine will take around 19 days, with about 15 for all the experiments in "all_1B.sh." 
 
-Next, the script "all_experiments.sh" will run every experiment in our paper. On the Msv2 machine, it took around 15 days to finish every experiment. This time can be curtailed to 2-3 days if needed by running experiments only on 100 million size datasets. 
+Results are written to CSV files in /ssd1/results. 
 
