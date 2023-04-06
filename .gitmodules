@@ -10,3 +10,6 @@
 [submodule "benchmarks/ANN/external/FALCONN/FALCONN_ANNS"]
 	path = benchmarks/ANN/external/FALCONN/FALCONN_ANNS
 	url = git@github.com:DapperX/FALCONN_ANNS.git
+[submodule "benchmarks/ANN/external/hnswlib/hnswlib"]
+	path = benchmarks/ANN/external/hnswlib/hnswlib
+	url = git@github.com:DapperX/hnswlib.git
