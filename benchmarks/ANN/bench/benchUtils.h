@@ -19,6 +19,8 @@
 // LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#ifndef __BENCHUTILS_H__
+#define __BENCHUTILS_H__
 
 #include <iostream>
 #include <algorithm>
@@ -361,5 +363,4 @@ auto parse_bvecs(const char* filename) {
 //   return points;
 // }
 
-
-
+#endif // __BENCHUTILS_H__

@@ -5,6 +5,7 @@ bash vamana.sh
 bash hcnng.sh
 bash pynndescent.sh
 bash hnsw.sh
+bash FALCONN.sh
 #range search experiments
 cd ~/pbbsbench/benchmarks/rangeSearch/scripts
 bash all_experiments.sh

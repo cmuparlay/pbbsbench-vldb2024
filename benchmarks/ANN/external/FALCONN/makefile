@@ -1,11 +1,12 @@
 CXX = g++
 #CXX = clang++
-DIR_PARLAY = ./parlaylib/include
-DIR_FALCONN = ../../include
-DIR_EIGEN = ../../../external/eigen
-DIR_SERIALIZER = ../../../external/simple-serializer
-DIR_NLOHMANN = ../../../external/nlohmann
-DIR_INCLUDE = $(DIR_PARLAY) $(DIR_FALCONN) $(DIR_EIGEN) $(DIR_SERIALIZER) $(DIR_NLOHMANN)
+DIR_BENCH = ../../bench
+DIR_BASE = ./FALCONN_ANNS
+DIR_FALCONN = $(DIR_BASE)/src/include
+DIR_EIGEN = $(DIR_BASE)/external/eigen
+DIR_SERIALIZER = $(DIR_BASE)/external/simple-serializer
+DIR_NLOHMANN = $(DIR_BASE)/external/nlohmann
+DIR_INCLUDE = $(DIR_BENCH) $(DIR_FALCONN) $(DIR_EIGEN) $(DIR_SERIALIZER) $(DIR_NLOHMANN)
 
 CXXFLAGS_BASIC = -std=c++17 -Wall -Wextra -march=native -pthread $(DIR_INCLUDE:%=-I%)
 ifeq (DEBUG, $(MODE))
@@ -26,6 +27,3 @@ endif
 
 calc_recall: calc_recall.cpp
 	$(CXX) $< $(CXXFLAGS_BASIC) $(CXXFLAGS_RELEASE) $(CXXFLAGS_HDF5) $(CXXFLAGS_JEMALLOC) -o $@
-
-default_param: default_param.cpp
-	$(CXX) $< $(CXXFLAGS_BASIC) $(CXXFLAGS_RELEASE) -o $@

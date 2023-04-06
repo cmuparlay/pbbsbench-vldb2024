@@ -10,8 +10,7 @@
 #include <chrono>
 #include <stdexcept>
 // #include <memory>
-//#include <H5Cpp.h>
-#include "dist.hpp"
+#include "type_point.hpp"
 #include <parlay/parallel.h>
 #include <parlay/primitives.h>
 #include <falconn/lsh_nn_table.h>
