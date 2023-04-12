@@ -1,6 +1,4 @@
 #!/bin/bash
-cd ~/pbbsbench/benchmarks/ANN/vamana
-make clean all
 
 P=/ssd1/data
 G=/ssd1/results
@@ -13,7 +11,14 @@ TG=$G/text2image1B
 FP=$P/FB_ssnpp
 FG=$G/FB_ssnpp
 
+mkdir -p $BG
+mkdir -p $SG
+mkdir -p $TG
+mkdir -p $FG
+
 #Vamana
+cd ~/pbbsbench/benchmarks/ANN/vamana
+make clean all
 ./neighbors -R 64 -L 128 -o $BG/100M_vamana_64_128 -q $BP/query.public.10K.u8bin -c $BP/bigann-100M -res $G/bigann_vamana.csv -f bin -t uint8 $BP/base.1B.u8bin.crop_nb_100000000
 ./neighbors -R 64 -L 128 -o $SG/100M_vamana_64_128 -q $SP/query.i8bin -c $SP/msspacev-100M -res $G/spacev_vamana.csv -f bin -t int8 $SP/spacev1b_base.i8bin.crop_nb_100000000
 ./neighbors -a .9 -R 64 -L 128 -o $TG/100M_vamana_64_128 -q $TP/query.public.100K.fbin -c $TP/text2image-100M -res $G/t2i_vamana.csv -f bin -t float -D 1 $TP/base.1B.fbin.crop_nb_100000000
@@ -42,6 +47,8 @@ make clean all
 cd ~/pbbsbench/benchmarks/rangeSearch/pyNNDescent
 make clean all
 ./range -R 60 -L 1000 -a 20 -d 1.4 -q $FP/FB_ssnpp_public_queries.u8bin -o $FG/100M_60 -c $FP/ssnpp-100M -res $G/ssnpp_pynn.csv $FP/FB_ssnpp_database.u8bin.crop_nb_100000000
+
+cd ~/pbbsbench/benchmarks/ANN/scripts
 
 #FALCONN
 bash FALCONN/FALCONN_100M.sh
