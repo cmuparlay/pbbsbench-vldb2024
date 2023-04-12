@@ -1,8 +1,9 @@
 import sys
 import re
 import functools
+import csv
 
-p_cmd = re.compile(r"\./calc_recall -n ([0-9]*)")
+p_cmd = re.compile(r"\./calc_recall -n ([0-9]*) .*?-m ([0-9]*) .*?-efc ([0-9]*)")
 p_algo = re.compile(r"Start building (.*)")
 p_buildtime = re.compile(r"Build index: (.*)")
 p_deg0 = re.compile(r"# 0: *([0-9]*) *([0-9]*) *([0-9]*)")
@@ -18,7 +19,8 @@ p_stat_tailing = re.compile(r"tail stat")
 p_endq = re.compile(r"---")
 
 file_in = sys.argv[1]
-target_k = int(sys.argv[2]) if len(sys.argv)>2 else None
+target_k = int(sys.argv[2]) if len(sys.argv)>2 else 0
+file_out = sys.argv[3] if len(sys.argv)>3 else None
 
 preamble = {}
 building = {}
@@ -34,6 +36,8 @@ for l in f.readlines():
 			n = int(res.group(1))
 			preamble["scale"] = n
 			preamble["scale_M"] = n/1000000
+			building["m"] = int(res.group(2))
+			building["efc"] = int(res.group(3))
 			continue
 		res = re.search(p_algo, l)
 		if res is not None: # algorithm name
@@ -66,7 +70,6 @@ for l in f.readlines():
 			continue
 		res = re.search(p_recall, l)
 		if res is not None: # recall
-			print(l)
 			q["recall"] = float(res.group(1))
 			q["QPS"] = float(res.group(2))*1000
 			continue
@@ -84,7 +87,7 @@ for l in f.readlines():
 			continue
 		res = re.match(p_endq, l)
 		if res is not None: # at the end of current query
-			if target_k is None or q["k"]==target_k:
+			if target_k==0 or q["k"]==target_k:
 				query.append(q)
 			q = {}
 
@@ -112,11 +115,9 @@ query.sort(key=lambda q: q["recall"])
 # print(query[0])
 
 print("ef\trecall\t\tQPS\t\tavg_cmp")
-bucket = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.99, 0.999, 1]
+bucket = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.65, 0.7, 0.75, 0.8, 0.83, 0.85, 0.87, 0.9, 0.95, 0.97, 0.99, 0.995, 0.999, 1]
 # bucket = [0.8,0.9]
-recall_in_bucket = []
-QPS_in_bucket = []
-ucand_in_bucket = []
+q_in_bucket = []
 for j in range(len(bucket)-1):
 	b = bucket[j]
 	l = 0
@@ -161,15 +162,51 @@ for j in range(len(bucket)-1):
 	if len(candidate)>0:
 		q = functools.reduce(lambda x,y: x if x["QPS"]>y["QPS"] else y, candidate)
 		print("%d\t%f\t%f\t%d"%(q["ef"],q["recall"],q["QPS"],int(q["avg_cmp"])))
-		recall_in_bucket.append(q["recall"])
-		QPS_in_bucket.append(q["QPS"])
-		ucand_in_bucket.append(q["avg_cmp"])
+		q_in_bucket.append((q,b))
+		# recall_in_bucket.append(q["recall"])
+		# QPS_in_bucket.append(q["QPS"])
+		# ucand_in_bucket.append(q["avg_cmp"])
 	"""
 	for q in candidate:
 		print("%d %f %f"%(q["ef"],q["recall"],q["QPS"]))
 		pass
 	"""
 
-print(",".join([str(k) for k in recall_in_bucket]))
-print(",".join(["%.2f"%k for k in QPS_in_bucket]))
-print(",".join([str(int(k)) for k in ucand_in_bucket]))
+print(",".join([str(q["recall"]) for q,b in q_in_bucket]))
+print(",".join(["%.2f"%q["QPS"] for q,b in q_in_bucket]))
+print(",".join([str(int(q["avg_cmp"])) for q,b in q_in_bucket]))
+
+if file_out is not None:
+	with open(file_out, "a", newline='') as csvfile:
+		writer = csv.writer(csvfile, quoting=csv.QUOTE_NONNUMERIC)
+		writer.writerow(["GRAPH","Parameters","Size","Build time","Avg degree","Max degree"])
+		writer.writerow([
+			preamble["algo"],
+			"m = %d, efc = %d" % (building["m"],building["efc"]),
+			preamble["scale"],
+			round(building["time"], 3),
+			round(building["avg_deg"], 4),
+			building["max_deg"]
+		]);
+		writer.writerow([])
+		writer.writerow([
+			"Num queries","Target recall","Actual recall","QPS",
+			"Average Cmps","Tail Cmps","Average Visited","Tail Visited","k"
+		])
+
+		for i in range(len(q_in_bucket)):
+			q,b = q_in_bucket[i]
+			if i+1<len(q_in_bucket) and q==q_in_bucket[i+1][0]:
+				continue
+			writer.writerow([
+				q["cnt"],
+				b,
+				q["recall"],
+				round(q["QPS"], 2),
+				int(q["avg_cmp"]),
+				q[".99_cmp"],
+				int(q["avg_visit"]),
+				q[".99_visit"],
+				q["k"]
+			])
+		writer.writerow([])
