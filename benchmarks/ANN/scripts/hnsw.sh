@@ -139,6 +139,7 @@ efc=400
 alpha=0.82
 file_in=$P/FB_ssnpp_database.u8bin:u8bin
 file_q=$P/FB_ssnpp_public_queries.u8bin:u8bin
+export rad=96237
 
 scale=1
 file_gt=$P/ssnpp-1M:irange
