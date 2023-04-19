@@ -22,7 +22,8 @@ export save_graph=1
 export thread=`nproc`
 export limit_eval=1
 
-cd ~/pbbsbench/benchmarks/ANN/HNSW
+cd ~/pbbsbench-vldb2024/benchmarks/ANN/HNSW
+# TODO Guy: change this to your path to pbbsbench-vldb2024 in your home directory
 make calc_recall
 
 P=/ssd1/data
@@ -39,6 +40,7 @@ m=32
 efc=128
 alpha=0.82
 file_in=$BP/base.1B.u8bin:u8bin
+#TODO Guy: change this to the file that is actually present in /ssd1/data/bigann, e.g. base.1B.u8bin.crop_nb_1000000 
 file_q=$BP/query.public.10K.u8bin:u8bin
 
 scale=1
