@@ -69,11 +69,6 @@ double output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32
 		});
 	}
 	t.next("Doing search");
-	//auto t1 = std::chrono::high_resolution_clock::now();
-	g.total_range_candidate.assign(parlay::num_workers(), 0);
-	g.total_visited.assign(parlay::num_workers(), 0);
-	g.total_eval.assign(parlay::num_workers(), 0);
-	g.total_size_C.assign(parlay::num_workers(), 0);
 
 	parlay::parallel_for(0, cnt_query, [&](size_t i){
 		search_control ctrl{};
@@ -83,14 +78,8 @@ double output_recall(HNSW<U> &g, parlay::internal::timer &t, uint32_t ef, uint32
 		ctrl.limit_eval = limit_eval;
 		res[i] = g.search(q[i], k, ef, ctrl);
 	});
-	//auto t2 = std::chrono::high_resolution_clock::now();
 	const double time_query = t.next_time();
 	const auto qps = cnt_query/time_query;
-	//printf("time diff: %.8f\n", time_query);
-	// auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(t2-t1);
-	//std::chrono::duration<double, std::milli> diff = t2-t1;
-	//printf("time diff (hi): %.4f\n", diff.count());
-	// t.report(time_query, "Find neighbors");
 	printf("HNSW: Find neighbors: %.4f\n", time_query);
 
 	double ret_val = 0;

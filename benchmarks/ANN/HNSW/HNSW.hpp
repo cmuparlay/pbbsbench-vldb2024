@@ -985,21 +985,19 @@ auto HNSW<U,Allocator>::search_layer(const node &u, const parlay::sequence<node_
 			}
 		}
 	}
-	if(l_c==0)
+
+	//total_visited += visited.size();
+	//total_visited += visited.size()-std::count(visited.begin(),visited.end(),n+1);
+	const auto id = parlay::worker_id();
+	total_visited[id] += visited.size();
+	total_size_C[id] += C.size()+cnt_eval;
+	total_eval[id] += cnt_eval;
+	if(ctrl.log_per_stat)
 	{
-		//total_visited += visited.size();
-		//total_visited += visited.size()-std::count(visited.begin(),visited.end(),n+1);
-		const auto id = parlay::worker_id();
-		total_visited[id] += visited.size();
-		total_size_C[id] += C.size()+cnt_eval;
-		total_eval[id] += cnt_eval;
-		if(ctrl.log_per_stat)
-		{
-			const auto qid = *ctrl.log_per_stat;
-			per_visited[qid] = visited.size();
-			per_eval[qid] = C.size()+cnt_eval;
-			per_size_C[qid] = cnt_eval;
-		}
+		const auto qid = *ctrl.log_per_stat;
+		per_visited[qid] += visited.size();
+		per_eval[qid] += C.size()+cnt_eval;
+		per_size_C[qid] += cnt_eval;
 	}
 
 	if(ctrl.radius)
@@ -1311,13 +1309,29 @@ parlay::sequence<std::pair<uint32_t,float>> HNSW<U,Allocator>::search(const T &q
 template<typename U, template<typename> class Allocator>
 parlay::sequence<std::pair<uint32_t,float>> HNSW<U,Allocator>::search(const T &q, uint32_t k, uint32_t ef, search_control ctrl)
 {
+	const auto id = parlay::worker_id();
+	total_range_candidate[id] = 0;
+	total_visited[id] = 0;
+	total_eval[id] = 0;
+	total_size_C[id] = 0;
+	if(ctrl.log_per_stat)
+	{
+		const auto qid = *ctrl.log_per_stat;
+		per_visited[qid] = 0;
+		per_eval[qid] = 0;
+		per_size_C[qid] = 0;
+	}
+
 	node u{0, nullptr, q}; // To optimize
 	// std::priority_queue<dist,parlay::sequence<dist>,farthest> W;
 	auto eps = entrance;
 	if(!ctrl.indicate_ep)
 		for(int l_c=get_node(entrance[0]).level; l_c>0; --l_c) // TODO: fix the type
 		{
-			const auto W = search_layer(u, eps, 1, l_c);
+			search_control c{};
+			c.log_per_stat = ctrl.log_per_stat; // whether count dist calculations at all layers
+			// c.limit_eval = ctrl.limit_eval; // whether apply the limit to all layers
+			const auto W = search_layer(u, eps, 1, l_c, c);
 			eps.clear();
 			eps.push_back(W[0].u);
 			/*
